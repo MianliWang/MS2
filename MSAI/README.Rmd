@@ -1,0 +1,49 @@
+---
+title: "MSAI"
+author: "Hui Peng"
+date: '2024-11-29'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+This package is used to prepare MS data for machine learning models:
+requriements:
+1. MS1 peak lists in the folder of 'peaklist'
+2. Raw MS2 DIA data in the folder of 'data'
+3. results folder to save results
+4. the name of peak list documents should be matched to raw MS data
+
+```{r, message=FALSE, warning=FALSE}
+  rm(list=ls())
+  install.packages("C:\\1Xiaoyun\\460K_Complete (MS1MS2)data processing procedure\\CODE\\STEP2\\MSAI\\R\\GetFrag.R")  
+  library(MSAI)
+  library(xcms)
+  library(devtools)
+  library(xlsx)
+  library(ChemmineR)
+  library(rcdk)
+  library(MassSpecWavelet)
+  library(Rcpp)
+  library(RcppArmadillo)
+  library(isopat)
+  library(readxl)
+  data(iso_list)
+  #'set up the path
+  path<-"C:\\1Xiaoyun\\460K_Complete (MS1MS2)data processing procedure\\CODE\\STEP2\\MSAI"
+  DIAisowin<-4.5 ##window of DIa
+  mz_tol<-4*10^(-6) ##MS tolerance
+  RTwin<-10 #retention time window
+  setwd(path)
+```
+
+Extracting MS2
+
+```{r pressure, echo=FALSE}
+
+myms2<-GetFrag(mz_tol,DIAisowin,RTwin)
+```
+
