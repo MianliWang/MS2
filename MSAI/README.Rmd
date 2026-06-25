@@ -47,3 +47,20 @@ Extracting MS2
 myms2<-GetFrag(mz_tol,DIAisowin,RTwin)
 ```
 
+Extracting two chiral LC peaks
+
+Two chiral peaks are separated by retention time windows. MS2 fragments are
+extracted for each window, but this function does not automatically assign R/S.
+The MVP does not perform peak deconvolution. The `apex_rt` output is reported in
+seconds because raw retention times are handled in seconds internally.
+
+```{r chiral-ms2, eval=FALSE}
+
+my_chiral_ms2<-GetChiralFrag(
+  mz_tol = 0.00001,
+  DIAisowin = 20,
+  peak_a_rt_window = c(5.10, 5.35),
+  peak_b_rt_window = c(5.70, 5.95),
+  rt_unit = "min"
+)
+```
