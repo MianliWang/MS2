@@ -16,17 +16,22 @@ GetFrag<-function(mz_tol,DIAisowin,RTwin){
   
   setwd(path.peak)#the list of peak documents
   peakfiles<-list.files()
+  if (length(peakfiles)<1){
+    warning("No peaklist files found in ", path.peak, "; returning NULL.", call. = FALSE)
+    setwd(path)
+    return(NULL)
+  }
   
   setwd(path.data)#the list of raw MS data
   msfiles<-list.files()
   
   fragments<-NULL
-  for (k in 1:length(peakfiles)){
+  for (k in seq_along(peakfiles)){
     
     ##get the peak list
     setwd(path.peak)
     print(c('getfragment...',k))
-    mycpd<-read_excel(peakfiles[k])
+    mycpd<-readxl::read_excel(peakfiles[k])
     mycpd$MS2<-rep(0,nrow(mycpd))
     
     ##get the raw data
@@ -35,14 +40,20 @@ GetFrag<-function(mz_tol,DIAisowin,RTwin){
     temp<-temp[1]#sample name
     index<-grep(temp,msfiles)
     
-    if (length(index)==0){next} #no MS data
+    if (length(index)==0){
+      warning("No matching raw MS data found for peaklist ", peakfiles[k], "; skipping.", call. = FALSE)
+      next
+    } #no MS data
+    if (length(index)>1){
+      warning("Multiple raw MS data files matched peaklist ", peakfiles[k], "; using first match: ", msfiles[index[1]], call. = FALSE)
+      index<-index[1]
+    }
     
-    xraw<-xcmsRaw(msfiles[index],includeMSn=TRUE)
+    xraw<-xcms::xcmsRaw(msfiles[index],includeMSn=TRUE)
     
     #'extracting precursor DIA windows
     precursor<-preclist(xraw)
-    len<-length(precursor)
-    for (j in 1:nrow(mycpd)){
+    for (j in seq_len(nrow(mycpd))){
       mz<-mycpd$mz[j]
       DIAwin<-which(abs(mz-precursor)<=(0.5*DIAisowin))
       if (length(DIAwin)<1){next}
@@ -67,13 +78,11 @@ GetFrag<-function(mz_tol,DIAisowin,RTwin){
 #' @param xmsn 
 #' @return
 preclist<-function (xmsn){
-  x<-xmsn
-  
   #'extracting DIA windows
   precmz<-xmsn@msnPrecursorMz
-  len<-length(precmz)
+  if (length(precmz)<1){return(precmz)}
   precur<-precmz[1]
-  for (i in 2:len){
+  for (i in seq_along(precmz)[-1]){
     if (length(which(precur==precmz[i]))==0){
       precur<-c(precur, precmz[i])
     }
@@ -111,7 +120,7 @@ getfrag<-function(xraw,index,mycpd,mz_tol,DIAwin,RTwin){
   rtmax<-min(max(rtrange),mycpd$rt[index]+10)
   
   #'extracting precursor ions and peaks
-  peaks<-rawEIC(DIAdata,mzrange=cbind(mzmin,mzmax),rtrange=cbind(rtmin,rtmax))
+  peaks<-xcms::rawEIC(DIAdata,mzrange=cbind(mzmin,mzmax),rtrange=cbind(rtmin,rtmax))
   
   #'finding the scan number of the peak top
   scan.max<-which.max(peaks$intensity)
@@ -124,22 +133,21 @@ getfrag<-function(xraw,index,mycpd,mz_tol,DIAwin,RTwin){
   
   #'finding co-eluting ions
   mz.frag<-DIAdata@env$mz[correctindex]
-  if (length(mz.frag)<1){return(prec_list)}
+  if (length(mz.frag)<1){return(NA_character_)}
   index<-which(mz.frag<precurmz-10)
-  if (length(index)<1){return(prec_list)}
+  if (length(index)<1){return(NA_character_)}
   mz.frag<-mz.frag[index]
   
   #' using correlations to find fragments
   native.peak<-peaks$intensity
-  kk<-0
   fragment.list<-NULL
-  for (k in 1:length(mz.frag)){
+  for (k in seq_along(mz.frag)){
     mz0<-mz.frag[k]
     mzmin<-max(minmz,mz0-mz0*mz_tol)
     mzmax<-min(maxmz,mz0+mz0*mz_tol)
     
     #'fragment peaks
-    frag.peak<-rawEIC(DIAdata,mzrange=cbind(mzmin,mzmax),rtrange=cbind(rtmin,rtmax))
+    frag.peak<-xcms::rawEIC(DIAdata,mzrange=cbind(mzmin,mzmax),rtrange=cbind(rtmin,rtmax))
     frag.peak<-frag.peak$intensity
     if (sd(native.peak)==0||sd(frag.peak)==0){next}
     if (max(frag.peak)<2000){next}
@@ -157,6 +165,7 @@ getfrag<-function(xraw,index,mycpd,mz_tol,DIAwin,RTwin){
       }
     }
     }
+  if (length(fragment.list)<1){return(NA_character_)}
   return (fragment.list)
   }
 
@@ -175,11 +184,11 @@ ms2copy <-function(xmsn,precursor) {
   x@tic <- xmsn@msnAcquisitionNum[index]
   x@scantime <- xmsn@msnRt[index]
   x@acquisitionNum <- xmsn@msnAcquisitionNum[index]
-  x@polarity<-xmsn@polarity[1:length(index)]
+  x@polarity<-xmsn@polarity[seq_along(index)]
   len2<-length(xmsn@msnPrecursorMz)
   index_total<-0
   index3<-0
-  for (j in 1:length(index)){
+  for (j in seq_along(index)){
     if (index[j]==len2){
       index2<-(xmsn@msnScanindex[index[j]]+1):length(xmsn@env$msnMz)
     }
