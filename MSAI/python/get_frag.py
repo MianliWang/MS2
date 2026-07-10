@@ -12,8 +12,9 @@ import warnings
 from pathlib import Path
 
 try:
-    from .ms2_core import (
+    from .ms2 import (
         column,
+        build_ms2_index,
         extract_window_result,
         first_dia_window,
         load_ms2_spectra,
@@ -27,8 +28,9 @@ try:
         write_table,
     )
 except ImportError:
-    from ms2_core import (  # type: ignore
+    from ms2 import (  # type: ignore
         column,
+        build_ms2_index,
         extract_window_result,
         first_dia_window,
         load_ms2_spectra,
@@ -90,20 +92,21 @@ def get_frag(mz_tol: float, dia_iso_win: float, rt_win=None, base_path=None):
             continue
 
         spectra = load_ms2_spectra(rawfile)
-        precursor = preclist(spectra)
+        spectra_index = build_ms2_index(spectra)
+        precursor = spectra_index.precursors
         for row in rows:
             mz = number(row.get(mz_col))
             rt = number(row.get(rt_col))
             if mz is None or rt is None:
                 continue
 
-            diawin = first_dia_window(mz, precursor, dia_iso_win)
+            diawin = first_dia_window(mz, spectra_index, dia_iso_win)
             if diawin is None:
                 continue
 
             # legacy 行为：peaklist rt 单位是分钟，转换成秒后取 +/- 10 秒。
             fragments = _extract_fragments(
-                spectra=spectra,
+                spectra=spectra_index,
                 precurmz=mz,
                 mz_tol=mz_tol,
                 mz_tol_unit="legacy_fraction",

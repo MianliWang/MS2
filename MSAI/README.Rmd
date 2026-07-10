@@ -11,6 +11,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## R Markdown
 This package is used to prepare MS data for machine learning models:
+
+The current Python project is primarily an MS2 workflow: it extracts and
+compares DIA-MS2 spectra for supplied `Peak1`/`Peak2` retention times. Automatic
+MS1 peak picking is retained only as an experimental method-development
+reference and is not required by the core MS2 analysis.
+
 requriements:
 1. MS1 peak lists in the folder of 'peaklist'
 2. Raw MS2 DIA data in the folder of 'data'
@@ -51,7 +57,8 @@ Extracting two chiral LC peaks
 
 Two chiral peaks are separated by retention time windows. MS2 fragments are
 extracted for each window, but this function does not automatically assign R/S.
-The MVP does not perform peak deconvolution. The `apex_rt` output is reported in
+The legacy R entry point does not perform the indexed consensus/deconvolution
+implemented by the Python v2 workflow. The `apex_rt` output is reported in
 seconds because raw retention times are handled in seconds internally.
 
 ```{r chiral-ms2, eval=FALSE}
@@ -64,3 +71,29 @@ my_chiral_ms2<-GetChiralFrag(
   rt_unit = "min"
 )
 ```
+
+## Recommended per-row peak-pair analysis
+
+The supplied screening table contains a separate `Peak1` and `Peak2` retention
+time for each compound, so one global pair of windows is not appropriate.  The
+Python workflow reads `MZ`, `Peak1`, and `Peak2` per row, extracts both spectra,
+and adds cosine similarity, exclusive matched-ion count, explained intensity,
+and a conservative candidate classification.
+
+```{powershell, eval=FALSE}
+python MSAI\python\get_chiral_frag.py `
+  --peaklist MSAI\peaklist\merged_result_IG_EASMSV1.csv `
+  --raw MSAI\data\IG_STD500nM_EASMSV1_2.mzXML `
+  --output MSAI\results\merged_result_IG_EASMSV1_chiral_MS2_similarity.csv
+```
+
+The default candidate criterion is cosine >= 0.7, at least six matched product
+ions, and at least 50% explained intensity in both spectra.  This identifies a
+candidate enantiomer pair only.  Absolute R/S assignment still requires
+authentic enantiopure standards analyzed with the same chiral LC method.
+
+The Python v2 implementation also provides automatic MS1 peak picking,
+spectral-entropy similarity, real isolation-window parsing, calibrated
+threshold profiles, manifest-based A01-A11 batch processing, resume support,
+and run metadata. See `README.md` for the current commands and validation
+results; this R Markdown section is retained for legacy package users.

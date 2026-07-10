@@ -4,3 +4,5 @@ MSAI/data/
 MSAI/results/
 MSAI/peaklist/
 .scratch/
+__pycache__/
+*.py[cod]

@@ -3,25 +3,31 @@
 新代码建议直接看：
 - get_frag.py: 旧版单峰 GetFrag。
 - get_chiral_frag.py: 新版手性双峰 GetChiralFrag。
-- ms2_core.py: 单峰/双峰共享的数据结构、EIC 和 DIA helper。
+- ms2/: 单峰/双峰共享的数据结构、读取、索引、EIC 和 DIA helper。
 """
 
 from __future__ import annotations
 
 try:
-    from .ms2_core import Eic, Spectrum, format_fragment_string, mz_bounds, normalize_rt_window, summarize_xic_peak
-    from .get_chiral_frag import GetChiralFrag, extract_fragments_for_rt_window, get_chiral_frag
+    from .chiral_similarity import ChiralPairThresholds, classify_chiral_pair, compare_fragment_spectra
+    from .ms2 import Eic, Spectrum, format_fragment_string, mz_bounds, normalize_rt_window, summarize_xic_peak
+    from .get_chiral_frag import GetChiralFrag, analyze_chiral_peak_pairs, extract_fragments_for_rt_window, get_chiral_frag
     from .get_frag import GetFrag, get_frag
 except ImportError:
-    from ms2_core import Eic, Spectrum, format_fragment_string, mz_bounds, normalize_rt_window, summarize_xic_peak  # type: ignore
-    from get_chiral_frag import GetChiralFrag, extract_fragments_for_rt_window, get_chiral_frag  # type: ignore
+    from chiral_similarity import ChiralPairThresholds, classify_chiral_pair, compare_fragment_spectra  # type: ignore
+    from ms2 import Eic, Spectrum, format_fragment_string, mz_bounds, normalize_rt_window, summarize_xic_peak  # type: ignore
+    from get_chiral_frag import GetChiralFrag, analyze_chiral_peak_pairs, extract_fragments_for_rt_window, get_chiral_frag  # type: ignore
     from get_frag import GetFrag, get_frag  # type: ignore
 
 __all__ = [
     "Eic",
     "Spectrum",
+    "ChiralPairThresholds",
     "GetFrag",
     "GetChiralFrag",
+    "analyze_chiral_peak_pairs",
+    "classify_chiral_pair",
+    "compare_fragment_spectra",
     "extract_fragments_for_rt_window",
     "format_fragment_string",
     "get_frag",

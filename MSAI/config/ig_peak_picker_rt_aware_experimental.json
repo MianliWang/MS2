@@ -1,0 +1,50 @@
+{
+  "profile_version": "ig-peak-picker-rt-aware-experimental-v1",
+  "status": "shadow_mode_manual_review",
+  "scope": "Orbitrap Exploris 240, CHIRALPAK IG, current 500 nM EASMSV1 surrogate",
+  "peak_picking_config": {
+    "eic_ppm": 3.0,
+    "sg_window": 3,
+    "sg_polyorder": 2,
+    "min_height": 200000.0,
+    "min_distance_scans": 20,
+    "refine_radius_scans": 3,
+    "min_scan_points": 5,
+    "top_k": 2,
+    "min_prominence_ratio": 0.25,
+    "min_support_scans": 3,
+    "min_distance_sec": 6.0,
+    "close_peak_max_valley_ratio": 0.85,
+    "rank_by_prominence": true
+  },
+  "quality_thresholds": {
+    "max_valley_ratio": 0.85,
+    "min_resolution": 0.0,
+    "min_second_peak_ratio": 0.02
+  },
+  "evaluation": {
+    "method": "compound-level deterministic 80/20, three-class RT-aware scoring",
+    "evaluation_status": "exploratory; holdout was inspected during method development and is not a final external validation set",
+    "calibration_rows": 416,
+    "test_rows": 109,
+    "test_accuracy": 0.8256880734,
+    "test_macro_recall": 0.8716850265,
+    "test_no_peak_recall": 1.0,
+    "test_single_peak_recall": 0.7894736842,
+    "test_double_peak_recall": 0.8255813953,
+    "test_close_double_recall": 0.0,
+    "test_mislocalized": 11
+  },
+  "comparison_to_legacy_on_same_strict_metric": {
+    "legacy_accuracy": 0.7614678899,
+    "legacy_macro_recall": 0.7898816809,
+    "legacy_single_peak_recall": 0.5789473684,
+    "legacy_double_peak_recall": 0.7906976744,
+    "legacy_close_double_recall": 0.1111111111
+  },
+  "limitations": [
+    "The selected 200000 absolute height floor shows that current labels do not validate low-clean automatic calls.",
+    "Close-double recall was zero on the exploratory holdout; close_peak_pair rows require manual review.",
+    "A labeled ChiralRTdb low-intensity and close-double set is required before production use."
+  ]
+}

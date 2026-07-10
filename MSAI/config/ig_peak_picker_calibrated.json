@@ -1,0 +1,32 @@
+{
+  "profile_version": "ig-peak-picker-v1",
+  "scope": "Orbitrap Exploris 240, CHIRALPAK IG, current standardized 30 min method",
+  "peak_picking_config": {
+    "eic_ppm": 3.0,
+    "sg_window": 7,
+    "sg_polyorder": 2,
+    "min_height": 200000.0,
+    "min_distance_scans": 20,
+    "refine_radius_scans": 3,
+    "min_scan_points": 5,
+    "top_k": 2
+  },
+  "quality_thresholds": {
+    "max_valley_ratio": 0.7,
+    "min_resolution": 0.0,
+    "min_second_peak_ratio": 0.05
+  },
+  "validation": {
+    "split": "deterministic compound holdout 80/20",
+    "calibration_rows": 398,
+    "test_rows": 105,
+    "excluded_no_peak_rows": 22,
+    "label_scope": "reviewed double peak versus reviewed single peak",
+    "test_balanced_accuracy": 0.9186046512,
+    "test_precision": 1.0,
+    "test_recall": 0.8372093023,
+    "test_specificity": 1.0,
+    "test_rt_matches_within_0.1_min": "68/72 predicted positive test rows"
+  },
+  "warning": "Agreement with reviewed chromatographic peak labels; not proof of enantiomer identity. Recalibrate after changing column, gradient, concentration, instrument, or pool design."
+}

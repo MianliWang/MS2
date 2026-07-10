@@ -1,0 +1,12 @@
+sample_id,mode,peaklist,raw,output,mz_column
+A01,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A01.csv,data\IG_STD170nM_Chiral8kA01_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A01_full.csv,MZ
+A02,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A02.csv,data\IG_STD170nM_Chiral8kA02_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A02_full.csv,MZ
+A03,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A03.csv,data\IG_STD170nM_Chiral8kA03_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A03_full.csv,MZ
+A04,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A04.csv,data\IG_STD170nM_Chiral8kA04_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A04_full.csv,MZ
+A05,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A05.csv,data\IG_STD170nM_Chiral8kA05_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A05_full.csv,MZ
+A06,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A06.csv,data\IG_STD170nM_Chiral8kA06_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A06_full.csv,MZ
+A07,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A07.csv,data\IG_STD170nM_Chiral8kA07_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A07_full.csv,MZ
+A08,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A08.csv,data\IG_STD170nM_Chiral8kA08_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A08_full.csv,MZ
+A09,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A09.csv,data\IG_STD170nM_Chiral8kA09_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A09_full.csv,MZ
+A10,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A10.csv,data\IG_STD170nM_Chiral8kA10_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A10_full.csv,MZ
+A11,full,peaklist\by_well\ChiralAlist_ID_IG_A01-A11_A11.csv,data\IG_STD170nM_Chiral8kA11_pos_3.mzML,results\batch_A01_A11\ChiralAlist_ID_IG_A01-A11_A11_full.csv,MZ
