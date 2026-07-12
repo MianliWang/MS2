@@ -1,0 +1,36 @@
+{
+  "schema_id": "MSAI-MS1-MANUAL-REVIEW-v1",
+  "scope": "Human review of targeted MS1 EIC shape and retention-time coordinates only",
+  "non_gating_rule": "Human MS1 labels do not directly alter MS2 same-compound identity status",
+  "allowed_peak_classes": [
+    "single_peak",
+    "double_resolved",
+    "double_shoulder",
+    "no_peak",
+    "interference_or_coelution",
+    "uncertain"
+  ],
+  "required_annotation_fields": [
+    "target_uid",
+    "artifact_sha256",
+    "reviewer_id",
+    "review_round",
+    "manual_peak_class",
+    "confidence",
+    "peak1_rt_min",
+    "peak2_rt_min",
+    "qc_flags",
+    "notes",
+    "reviewed_utc"
+  ],
+  "adjudication": {
+    "class_disagreement": "required when two non-uncertain reviewer classes differ",
+    "rt_disagreement_min": 0.1,
+    "critical_or_uncertain_rows": "at least two blinded reviewers"
+  },
+  "automatic_consensus": {
+    "rule": "baseline and experimental models must return the same class and each peak RT must agree within 0.05 min",
+    "otherwise": "manual_review_required",
+    "calibration_state": "development-set abstention rule; requires independent validation"
+  }
+}

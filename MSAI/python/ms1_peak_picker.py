@@ -137,6 +137,18 @@ class _PeakCandidate:
 
 
 @dataclass(frozen=True)
+class PeakCandidate:
+    """A high-recall candidate before pair selection or ``top_k`` truncation."""
+
+    scan_index: int
+    rt_sec: float
+    intensity: float
+    prominence: float | None
+    prominence_ratio: float | None
+    support_scans: int | None
+
+
+@dataclass(frozen=True)
 class PeakPickResult:
     signal_status: str
     chromatographic_status: str
@@ -159,6 +171,19 @@ def resolution_passes_threshold(
         or min_resolution <= 0
         or (resolution is not None and resolution >= min_resolution)
     )
+
+
+def chromatographic_resolution_fwhm(
+    first_rt_sec: float,
+    second_rt_sec: float,
+    first_fwhm_sec: float | None,
+    second_fwhm_sec: float | None,
+) -> float | None:
+    """Gaussian-equivalent chromatographic resolution from measured FWHM."""
+
+    if not first_fwhm_sec or not second_fwhm_sec or second_rt_sec <= first_rt_sec:
+        return None
+    return 1.17741 * (second_rt_sec - first_rt_sec) / (first_fwhm_sec + second_fwhm_sec)
 
 
 def extract_target_eics(raw_path, targets) -> tuple[list[float], dict[float, array]]:
@@ -341,11 +366,14 @@ def pick_chiral_peaks(
     first_peak, second_peak = peaks[0], peaks[1]
     valley = min(raw[first_peak.scan_index : second_peak.scan_index + 1])
     valley_ratio = valley / min(first_peak.intensity, second_peak.intensity)
-    resolution = None
-    if first_peak.width_sec and second_peak.width_sec:
-        resolution = 2 * (second_peak.rt_sec - first_peak.rt_sec) / (
-            first_peak.width_sec + second_peak.width_sec
-        )
+    # The measured widths are FWHM, not baseline widths.  For Gaussian peaks,
+    # converting the classical baseline-width formula gives factor 1.17741.
+    resolution = chromatographic_resolution_fwhm(
+        first_peak.rt_sec,
+        second_peak.rt_sec,
+        first_peak.width_sec,
+        second_peak.width_sec,
+    )
     second_peak_ratio = min(first_peak.intensity, second_peak.intensity) / max(
         first_peak.intensity,
         second_peak.intensity,
@@ -386,6 +414,64 @@ def pick_chiral_peaks(
         max(raw),
         peak_separation_sec=separation_sec,
         review_reasons=tuple(review_reasons),
+    )
+
+
+def enumerate_peak_candidates(
+    rts: list[float],
+    intensities,
+    config: PeakPickingConfig | None = None,
+) -> tuple[PeakCandidate, ...]:
+    """Return every accepted/refined candidate before final pair selection.
+
+    This is intended for shadow-mode review and candidate recall measurement;
+    it does not assign a single/double chromatographic class.
+    """
+
+    config = config or PeakPickingConfig()
+    raw = [float(value) for value in intensities]
+    if len(raw) != len(rts) or len(raw) < config.min_scan_points:
+        return ()
+    if config.min_height is not None and max(raw, default=0.0) < config.min_height:
+        return ()
+    window = min(config.sg_window, len(raw) if len(raw) % 2 else len(raw) - 1)
+    if window < 3:
+        return ()
+    smooth = savgol_smooth(raw, window, min(config.sg_polyorder, window - 1))
+    baseline = statistics.median(raw)
+    if config.adaptive_detection:
+        details = _find_adaptive_peaks(smooth, rts, baseline, config)
+        by_scan = {candidate.scan_index: candidate for candidate in details}
+        pairs = _refine_adaptive_candidates(
+            raw,
+            smooth,
+            [candidate.scan_index for candidate in details],
+            config.refine_radius_scans,
+        )
+        return tuple(
+            PeakCandidate(
+                scan_index=refined,
+                rt_sec=rts[refined],
+                intensity=raw[refined],
+                prominence=by_scan[candidate].prominence,
+                prominence_ratio=by_scan[candidate].prominence_ratio,
+                support_scans=by_scan[candidate].support_scans,
+            )
+            for candidate, refined in sorted(pairs, key=lambda pair: pair[1])
+        )
+
+    assert config.min_height is not None
+    candidates = _find_peaks(smooth, config.min_height, config.min_distance_scans)
+    refined = []
+    for candidate in candidates:
+        first = max(0, candidate - config.refine_radius_scans)
+        last = min(len(raw), candidate + config.refine_radius_scans + 1)
+        apex = max(range(first, last), key=raw.__getitem__)
+        if apex not in refined:
+            refined.append(apex)
+    return tuple(
+        PeakCandidate(index, rts[index], raw[index], None, None, None)
+        for index in sorted(refined)
     )
 
 

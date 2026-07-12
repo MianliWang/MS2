@@ -32,6 +32,7 @@ from .raw_io import (
     _mzml_scan_time,
     load_ms2_spectra,
 )
+from .raw_metadata import raw_acquisition_context
 from .tables import _row_has_data, _string_row, column, read_table, write_table
 from .utils import (
     _cor,
@@ -69,6 +70,7 @@ __all__ = [
     "pearson_correlation",
     "preclist",
     "raw_files",
+    "raw_acquisition_context",
     "read_table",
     "sample_sd",
     "summarize_xic_peak",

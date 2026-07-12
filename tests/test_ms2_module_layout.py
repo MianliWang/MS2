@@ -1,6 +1,10 @@
 import unittest
+from importlib import import_module
 
 from MSAI.python import ms2_core
+import MSAI.python.chiral_similarity as legacy_similarity
+import MSAI.python.diagnostic_standards as legacy_diagnostics
+from MSAI.python.ms2 import diagnostics, pipeline, similarity
 from MSAI.python.ms2 import build_ms2_index, extract_window_result
 from MSAI.python.ms2.extraction import extract_window_result as focused_extract
 from MSAI.python.ms2.indexing import build_ms2_index as focused_build_index
@@ -18,6 +22,12 @@ class Ms2ModuleLayoutTests(unittest.TestCase):
     def test_package_root_exports_focused_implementations(self):
         self.assertIs(build_ms2_index, focused_build_index)
         self.assertIs(extract_window_result, focused_extract)
+
+    def test_legacy_workflow_facades_reexport_canonical_modules(self):
+        legacy_pipeline = import_module("MSAI.python.get_chiral_frag")
+        self.assertIs(legacy_similarity.compare_fragment_spectra, similarity.compare_fragment_spectra)
+        self.assertIs(legacy_diagnostics.classify_ms2_diagnostic, diagnostics.classify_ms2_diagnostic)
+        self.assertIs(legacy_pipeline.analyze_chiral_peak_pairs, pipeline.analyze_chiral_peak_pairs)
 
 
 if __name__ == "__main__":

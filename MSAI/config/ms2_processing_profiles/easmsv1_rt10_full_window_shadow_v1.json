@@ -1,0 +1,25 @@
+{
+  "schema_version": "msai-ms2-processing-profile-v1",
+  "profile_id": "EASMSV1-RT10-FULL-WINDOW-SHADOW-v1",
+  "status": "shadow_manual_review_only",
+  "scope": "IG_STD500nM_EASMSV1_2.mzXML",
+  "reference_method_profile": "../acquisition_profiles/adductmlib_chemrxiv_20260129_v1.json",
+  "parameters": {
+    "rt_half_window_sec": 10.0,
+    "precursor_eic_mz_tol": 10.0,
+    "precursor_eic_mz_tol_unit": "ppm",
+    "fragment_eic_mz_tol": 10.0,
+    "fragment_eic_mz_tol_unit": "ppm",
+    "min_fragment_correlation": 0.9,
+    "fragment_correlation_mode": "full_window",
+    "consensus_scans": 1
+  },
+  "observed_comparison_to_rt8": {
+    "two_sided_spectra": {"rt8": 53, "rt10": 58},
+    "supported_same_compound": {"rt8": 21, "rt10": 24},
+    "status_changed_rows": 11,
+    "spectrum_changed_rows": 71,
+    "strong_shadow_support_candidates": ["XS474938b", "XS843274a"]
+  },
+  "warning": "Do not promote globally: full-window Pearson is sensitive to added common low/zero points. Review all 71 evidence changes."
+}

@@ -1,0 +1,65 @@
+{
+  "schema_version": "msai-reference-method-profile-v1",
+  "profile_id": "ADDUCTMLIB-CHEMRXIV-20260129-v1",
+  "title": "Orthogonal molecular annotation in mass spectrometry with AdductMLib",
+  "source": {
+    "type": "preprint",
+    "doi": "10.26434/chemrxiv.10001689/v1",
+    "local_filename": "ChemRxiv_20260129.pdf",
+    "methods_pages": [16, 17],
+    "manuscript_lines": [309, 352]
+  },
+  "applicability": {
+    "declared_dataset": "AdductMLib",
+    "exact_current_run_confirmed": false,
+    "current_run": "IG_STD500nM_EASMSV1_2.mzXML",
+    "warning": "Reference background only: the paper uses a 6 min C18 method, whereas the current EASMSV1 raw file is a 30 min chiral run."
+  },
+  "acquisition": {
+    "instrument": "Orbitrap Exploris 240 coupled to Vanquish UHPLC",
+    "ion_mode": "positive",
+    "full_ms": {
+      "scan_range_mz": [150, 520],
+      "resolution": 60000
+    },
+    "source_settings": {
+      "ionization": "H-ESI",
+      "spray_voltage_v": 3500,
+      "sheath_gas_arb": 30,
+      "auxiliary_gas_arb": 10,
+      "ion_transfer_tube_c": 325,
+      "vaporizer_c": 350,
+      "s_lens_rf_percent": 70,
+      "agc_target": "Standard"
+    },
+    "dia": {
+      "nominal_isolation_width_mz": 5.0,
+      "overlap_mz": 1.0,
+      "preprocessing_fixed_isolation_width_da": 4.5,
+      "resolution": 22500,
+      "activation_method": "HCD",
+      "stepped_hcd_percent": [15, 30, 60],
+      "sequential_spectra_per_loop": 7,
+      "files_per_sample": 3
+    }
+  },
+  "processing_reference": {
+    "precursor_fragment_rt_alignment_sec": 10,
+    "min_chromatographic_correlation": 0.9,
+    "mass_tolerance_ppm": {
+      "value": 3.0,
+      "source_type": "author_lab_note",
+      "paper_parameter": false,
+      "scope_confirmed": false,
+      "warning": "The PDF does not state a 3 ppm EIC/MS2 extraction tolerance. Confirm whether this applies to MS1 EIC, precursor EIC, fragment EIC, or all three."
+    }
+  },
+  "known_internal_conflicts": [
+    {
+      "code": "REFERENCE_INTERNAL_DIA_WIDTH_CONFLICT",
+      "methods_page_16": "5 m/z isolation window with 1 m/z overlap",
+      "methods_page_17": "fixed isolation window of 4.5 Da",
+      "resolution": "unresolved; retain both fields until author clarification"
+    }
+  ]
+}

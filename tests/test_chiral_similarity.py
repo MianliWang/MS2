@@ -17,13 +17,17 @@ from MSAI.python.chiral_similarity import (
     parse_fragment_string,
 )
 from MSAI.python.calibrate_thresholds import calibrate_thresholds
-from MSAI.python.get_chiral_frag import analyze_chiral_peak_pairs
+from MSAI.python.get_chiral_frag import (
+    analyze_chiral_peak_pairs,
+    extract_fragments_for_rt_window,
+)
 from MSAI.python.easms_statistics import (
     benjamini_hochberg,
     enantiomer_log2_ratio_shift,
     enrichment_fold,
 )
 from MSAI.python.ms1_peak_picker import PeakPickingConfig, pick_chiral_peaks, savgol_smooth
+from MSAI.python.ms2.extraction import _trace_correlation
 from MSAI.python.ms2_core import (
     Spectrum,
     _decode_mzxml_peaks,
@@ -122,7 +126,7 @@ class PairWorkflowTests(unittest.TestCase):
                 writer.writeheader()
                 writer.writerow({"Compound_ID": "test", "MZ": "295", "Peak1": "1", "Peak2": "2"})
 
-            with patch("MSAI.python.get_chiral_frag.load_ms2_spectra", return_value=self._spectra()):
+            with patch("MSAI.python.ms2.pipeline.load_ms2_spectra", return_value=self._spectra()):
                 rows = analyze_chiral_peak_pairs(
                     peaklist,
                     root / "raw.mzXML",
@@ -140,7 +144,53 @@ class PairWorkflowTests(unittest.TestCase):
             self.assertEqual(rows[0]["peak_b_quality_flags"], "ok")
             self.assertEqual(rows[0]["compound_identity_status"], "ms2_supported_same_compound")
             self.assertEqual(rows[0]["chiral_doublet_status"], "candidate_chiral_doublet")
+            self.assertEqual(rows[0]["ms1_reference_status"], "supplied_double_peak")
+            self.assertEqual(rows[0]["ms2_diagnostic_status"], "supported_same_compound")
+            self.assertEqual(rows[0]["ms2_review_priority"], "P2_boundary_or_interference")
             self.assertTrue(rows[0]["enantioselective_enrichment_status"].startswith("not_assessed"))
+
+    def test_precursor_and_fragment_eic_tolerances_can_be_separated(self):
+        spectra = [
+            Spectrum(300, 0, [100.002, 295.002], [0, 0]),
+            Spectrum(300, 1, [100.002, 295.002], [5000, 10000]),
+            Spectrum(300, 2, [100.002, 295.002], [0, 0]),
+        ]
+        shared_three_ppm = extract_fragments_for_rt_window(
+            spectra, 295, 3, "ppm", 300, (0, 2), min_fragment_intensity=1
+        )
+        split_tolerance = extract_fragments_for_rt_window(
+            spectra,
+            295,
+            3,
+            "ppm",
+            300,
+            (0, 2),
+            min_fragment_intensity=1,
+            precursor_eic_mz_tol=10,
+            precursor_eic_mz_tol_unit="ppm",
+            fragment_eic_mz_tol=3,
+            fragment_eic_mz_tol_unit="ppm",
+        )
+        self.assertEqual(shared_three_ppm["MS2"], "")
+        self.assertEqual(split_tolerance["MS2"], "100.002,5000")
+
+    def test_active_support_correlation_rejects_one_point_common_zero_match(self):
+        precursor = [0, 0, 1, 2, 1, 0, 0]
+        sparse_fragment = [0, 0, 0, 2, 0, 0, 0]
+        aligned_fragment = [0, 0, 1, 2, 1, 0, 0]
+        settings = {
+            "mode": "active_support",
+            "min_relative_intensity": 0.05,
+            "min_scans": 3,
+            "max_apex_offset_scans": 1,
+            "min_consecutive_fragment_scans": 3,
+        }
+        self.assertIsNone(
+            _trace_correlation(precursor, sparse_fragment, **settings)
+        )
+        self.assertAlmostEqual(
+            _trace_correlation(precursor, aligned_fragment, **settings), 1.0
+        )
 
 
 class IndexAndPeakPickingTests(unittest.TestCase):

@@ -16,7 +16,9 @@ except ImportError:
 
 DEFAULT_VARIANTS = {
     "mz_tol": [2.5, 3.0, 5.0, 10.0],
-    "rt_half_window_sec": [4.0, 8.0, 12.0],
+    "precursor_eic_mz_tol": [3.0, 5.0],
+    "fragment_eic_mz_tol": [3.0, 5.0],
+    "rt_half_window_sec": [4.0, 8.0, 10.0, 12.0],
     "min_fragment_correlation": [0.7, 0.8, 0.9, 0.95],
     "consensus_scans": [1, 2, 3, 5],
     "fragment_mz_tol": [0.003, 0.005, 0.01],

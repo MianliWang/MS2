@@ -1,0 +1,32 @@
+{
+  "schema_id": "MSAI-MS2-MANUAL-REVIEW-v1",
+  "scope": "Human review of same-compound support from two extracted MS2 spectra",
+  "claim_boundary": "Does not assign R/S configuration and does not infer enantioselective enrichment",
+  "allowed_identity_labels": [
+    "supports_same_compound",
+    "conflicts_same_compound",
+    "insufficient_evidence",
+    "not_evaluable",
+    "uncertain"
+  ],
+  "required_annotation_fields": [
+    "target_uid",
+    "artifact_sha256",
+    "reviewer_id",
+    "review_round",
+    "manual_ms2_identity_label",
+    "confidence",
+    "peak1_spectrum_quality",
+    "peak2_spectrum_quality",
+    "manual_issue_codes",
+    "diagnostic_fragment_notes",
+    "notes",
+    "reviewed_utc"
+  ],
+  "adjudication": {
+    "critical_rows": "P1 conflict, P2 interference/boundary, and P3 insufficient rows should receive two blinded reviews",
+    "identity_disagreement": "A separate adjudicator resolves different non-uncertain identity labels",
+    "automatic_result_visibility": "Prefer blinded labels before showing the automatic diagnostic status during calibration"
+  },
+  "storage_rule": "Reviewer annotations are separate from generated manifests and are never deleted by the exporter"
+}

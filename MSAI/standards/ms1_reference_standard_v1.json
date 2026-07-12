@@ -1,0 +1,35 @@
+{
+  "standard_id": "MSAI-MS1-REFERENCE-v1",
+  "scope": "Retention-time coordinates supplied to the MS2 workflow",
+  "claim_boundary": "Describes chromatographic context only and never changes the MS2 identity diagnostic",
+  "statuses": {
+    "supplied_double_peak": "Both Peak1 and Peak2 retention times are present",
+    "supplied_single_peak": "Exactly one retention time is present",
+    "no_supplied_peak": "Neither retention time is present"
+  },
+  "source_machine_label_context": {
+    "IG": {
+      "meaning": "Laboratory machine/run identifier with multiple pools; it is not a universal QC field",
+      "labels": {
+        "GREEN": "IG-source expectation of a usable double peak",
+        "YELLOW": "IG-source expectation of a usable single peak",
+        "RED": "No peak or multiple peaks; chromatographic result is unusable and is not a no-peak truth label",
+        "CHECK": "Requires further manual review"
+      }
+    },
+    "IA_IB_and_other_sources": "Store their raw source-machine labels separately. Do not infer that their colour vocabulary matches IG until confirmed."
+  },
+  "automation": {
+    "role": "experimental_reference_only",
+    "configuration_location": "MSAI/config/",
+    "separate_metrics": [
+      "FWHM",
+      "area_fwhm",
+      "SNR",
+      "valley_ratio",
+      "chromatographic_resolution"
+    ],
+    "chromatographic_resolution_definition": "Rs=1.17741*delta_rt/(FWHM1+FWHM2); factor-2 form is reserved for baseline widths"
+  },
+  "non_gating_rule": "MS1 automatic labels and thresholds are not used to pass or fail the MS2 same-compound diagnostic"
+}

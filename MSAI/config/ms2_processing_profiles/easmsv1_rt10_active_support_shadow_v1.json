@@ -1,0 +1,33 @@
+{
+  "schema_version": "msai-ms2-processing-profile-v1",
+  "profile_id": "EASMSV1-RT10-ACTIVE-SUPPORT-SHADOW-v1",
+  "status": "experimental_manual_review_only",
+  "scope": "IG_STD500nM_EASMSV1_2.mzXML",
+  "reference_method_profile": "../acquisition_profiles/adductmlib_chemrxiv_20260129_v1.json",
+  "parameters": {
+    "rt_half_window_sec": 10.0,
+    "precursor_eic_mz_tol": 10.0,
+    "precursor_eic_mz_tol_unit": "ppm",
+    "fragment_eic_mz_tol": 10.0,
+    "fragment_eic_mz_tol_unit": "ppm",
+    "min_fragment_correlation": 0.9,
+    "fragment_correlation_mode": "active_support",
+    "correlation_min_relative_intensity": 0.05,
+    "min_correlation_scans": 5,
+    "max_fragment_apex_offset_scans": 3,
+    "min_consecutive_fragment_scans": 2,
+    "consensus_scans": 1
+  },
+  "rationale": "Calculate Pearson only on precursor active support to avoid inflation by common zero/tail scans; require scan support and bounded fragment-apex displacement.",
+  "observed_comparison_to_full_window_rt10": {
+    "status_changed_rows": 12,
+    "spectrum_changed_rows": 43,
+    "new_supported_from_not_evaluable": [
+      "XS843236a",
+      "XS843242a",
+      "XS840060b",
+      "XS840537b"
+    ]
+  },
+  "warning": "Apex-offset and support thresholds are not calibrated on truth labels. This profile preserves several strong visual matches and rejects sparse artifacts, but it also creates new candidates that require blinded review."
+}

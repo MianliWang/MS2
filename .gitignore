@@ -1,7 +1,8 @@
 MSAI.zip
 MSAI/.RData
 MSAI/data/
-MSAI/results/
+MSAI/results/*
+!MSAI/results/README.md
 MSAI/peaklist/
 .scratch/
 __pycache__/

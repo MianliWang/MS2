@@ -1,0 +1,31 @@
+{
+  "profile_version": "ig-peak-picker-high-recall-candidates-v1",
+  "status": "shadow_candidate_generation_only_never_auto_classify",
+  "scope": "EASMSV1 development data; candidate enumeration before pair selection and top_k",
+  "peak_picking_config": {
+    "eic_ppm": 3.0,
+    "sg_window": 3,
+    "sg_polyorder": 2,
+    "min_height": 200000.0,
+    "min_distance_scans": 20,
+    "refine_radius_scans": 3,
+    "min_scan_points": 5,
+    "top_k": 2,
+    "min_prominence_ratio": 0.03,
+    "min_support_scans": 2,
+    "min_distance_sec": 6.0,
+    "close_peak_max_valley_ratio": 0.85,
+    "rank_by_prominence": true
+  },
+  "quality_thresholds": {
+    "max_valley_ratio": 0.85,
+    "min_resolution": 0.0,
+    "min_second_peak_ratio": 0.02
+  },
+  "development_evidence": {
+    "supplied_double_candidate_pair_coverage": "388/404",
+    "supplied_close_double_candidate_pair_coverage": "17/30",
+    "supplied_single_with_two_or_more_candidates": "57/99",
+    "warning": "High candidate recall has poor single-peak specificity. Never interpret candidate count as final peak class."
+  }
+}
