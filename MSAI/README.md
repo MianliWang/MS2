@@ -225,4 +225,4 @@ py -3.12 -m pytest -q tests
 - [MS1参数审计](docs/ms1_parameter_audit_EASMSV1.md)
 - [扩展开发与验证参考](docs/extended_development_reference.md)
 
-原始R函数保留在`R/`中用于兼容，但当前支持路径以Python工作流为准。
+本分支为Python-only实现，不再包含R包接口。

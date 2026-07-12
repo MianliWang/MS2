@@ -8,7 +8,7 @@ MSAI is a dependency-light Python workflow whose primary goal is DIA-MS2
 extraction and spectrum comparison for two supplied chiral LC retention-time
 peaks.  It also contains experimental targeted-MS1 peak-picking utilities for
 method development, but MS1 automation is a reference workflow rather than the
-main deliverable.  The original R functions remain available for legacy use.
+main deliverable.
 
 The supported project path is therefore: reviewed or otherwise supplied
 `Peak1`/`Peak2` values -> independent DIA-MS2 extraction -> cosine/entropy and
@@ -76,7 +76,6 @@ MSAI/
 │   ├── ms2/      # steps 4-7: raw I/O, DIA routing, extraction, similarity, diagnosis
 │   ├── ms2_review/ # step 8: reports, SVG/PNG, and human-review views
 │   └── ms2_core.py # small backward-compatible import facade
-├── R/            # legacy package implementation
 └── batch_*.csv   # explicit reproducible batch manifests
 ```
 
