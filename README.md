@@ -30,7 +30,7 @@ Peak2        = 17.385 min
 Compound_ID | experiment | pool | source_label | MZ | Peak1 | Peak2
 ```
 
-详细数据模型见[工作流与代码映射](docs/workflow_code_map.md)。
+详细数据模型见[工作流与代码映射](MSAI/docs/workflow_code_map.md)。
 
 ## MS1是否必须先运行？
 
@@ -127,7 +127,7 @@ flowchart TD
 8. 生成HTML、SVG/PNG及人工审核目录
 ```
 
-第4–8步对应代码见[workflow_code_map.md](docs/workflow_code_map.md)。
+第4–8步对应代码见[workflow_code_map.md](MSAI/docs/workflow_code_map.md)。
 
 ## 快速开始
 
@@ -187,7 +187,7 @@ supported_same_compound
 标准品或其他正交验证
 ```
 
-诊断顺序和当前保守阈值见[MS2诊断标准](docs/ms2_diagnostic_standard.md)。这些阈值是筛选guardrail，尚不是经过独立真值集验证的通用阈值。
+诊断顺序和当前保守阈值见[MS2诊断标准](MSAI/docs/ms2_diagnostic_standard.md)。这些阈值是筛选guardrail，尚不是经过独立真值集验证的通用阈值。
 
 ## 当前EASMSV1数据状态
 
@@ -203,7 +203,7 @@ supported_same_compound
 
 当前只导入了`IG_STD500nM_EASMSV1_2.mzXML`。其真实DIA覆盖约为`m/z 367.5–564.5`；351条不可评价记录中有306条不在这份文件的采集范围内。它们应解释为“当前导入文件未覆盖”，而不是谱图匹配失败。应优先确认是否存在对应的`_1`、`_3`质量区段文件。
 
-采集参数差异见[acquisition_parameter_reconciliation.md](docs/acquisition_parameter_reconciliation.md)，人工图像观察见[ms2_visual_audit_EASMSV1.md](docs/ms2_visual_audit_EASMSV1.md)。
+采集参数差异见[acquisition_parameter_reconciliation.md](MSAI/docs/acquisition_parameter_reconciliation.md)，人工图像观察见[ms2_visual_audit_EASMSV1.md](MSAI/docs/ms2_visual_audit_EASMSV1.md)。
 
 ## 结果目录
 
@@ -254,7 +254,7 @@ MSAI/
 - 固定碰撞能没有产生的碎片；
 - DIA共隔离造成的复杂背景。
 
-参数开发、MS1 FWHM/SNR/面积/分离度、批处理、E-ASMS效应量和BH多重检验的完整说明已移至[扩展开发参考](docs/extended_development_reference.md)。
+参数开发、MS1 FWHM/SNR/面积/分离度、批处理、E-ASMS效应量和BH多重检验的完整说明已移至[扩展开发参考](MSAI/docs/extended_development_reference.md)。
 
 ## 测试
 
@@ -276,13 +276,13 @@ uvx --with pillow pyright@1.1.408
 
 ## 主要文档
 
-- [工作流与代码映射](docs/workflow_code_map.md)
-- [MS2诊断标准](docs/ms2_diagnostic_standard.md)
-- [MS2静态审核方案](docs/ms2_static_visual_review_plan.md)
-- [EASMSV1 MS2图像审计](docs/ms2_visual_audit_EASMSV1.md)
-- [采集参数来源与冲突](docs/acquisition_parameter_reconciliation.md)
-- [MS1参考标准](docs/ms1_reference_standard.md)
-- [MS1参数审计](docs/ms1_parameter_audit_EASMSV1.md)
-- [扩展开发与验证参考](docs/extended_development_reference.md)
+- [工作流与代码映射](MSAI/docs/workflow_code_map.md)
+- [MS2诊断标准](MSAI/docs/ms2_diagnostic_standard.md)
+- [MS2静态审核方案](MSAI/docs/ms2_static_visual_review_plan.md)
+- [EASMSV1 MS2图像审计](MSAI/docs/ms2_visual_audit_EASMSV1.md)
+- [采集参数来源与冲突](MSAI/docs/acquisition_parameter_reconciliation.md)
+- [MS1参考标准](MSAI/docs/ms1_reference_standard.md)
+- [MS1参数审计](MSAI/docs/ms1_parameter_audit_EASMSV1.md)
+- [扩展开发与验证参考](MSAI/docs/extended_development_reference.md)
 
 本分支为Python-only实现，不再包含R包接口。
