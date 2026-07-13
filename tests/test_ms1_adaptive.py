@@ -8,10 +8,7 @@ from MSAI.python.ms1_peak_picker import PeakPickingConfig, pick_chiral_peaks
 class AdaptiveMs1PeakPickingTests(unittest.TestCase):
     def test_clean_low_peak_does_not_need_an_absolute_height_cutoff(self):
         rts = [float(index) for index in range(41)]
-        intensities = [
-            8.0 + 42.0 * math.exp(-((index - 20) / 3.0) ** 2)
-            for index in range(41)
-        ]
+        intensities = [8.0 + 42.0 * math.exp(-(((index - 20) / 3.0) ** 2)) for index in range(41)]
         result = pick_chiral_peaks(
             rts,
             intensities,
@@ -74,8 +71,8 @@ class AdaptiveMs1PeakPickingTests(unittest.TestCase):
     def test_default_configuration_stays_on_legacy_detector(self):
         rts = [float(index) for index in range(100)]
         intensities = [
-            220_000 * math.exp(-((index - 25) / 4) ** 2)
-            + 180_000 * math.exp(-((index - 70) / 5) ** 2)
+            220_000 * math.exp(-(((index - 25) / 4) ** 2))
+            + 180_000 * math.exp(-(((index - 70) / 5) ** 2))
             for index in range(100)
         ]
         with patch(

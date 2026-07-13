@@ -16,16 +16,9 @@ import platform
 import sys
 import time
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from .diagnostics import classify_ms1_reference, classify_ms2_diagnostic
-from .similarity import (
-    ChiralPairThresholds,
-    SpectrumSimilarity,
-    classify_chiral_pair,
-    compare_fragment_spectra,
-)
 from . import (
     Eic,
     Ms2Index,
@@ -44,13 +37,19 @@ from . import (
     normalize_rt_window,
     number,
     peak_files,
-    preclist,
-    raw_files,
     raw_acquisition_context,
+    raw_files,
     read_table,
     summarize_xic_peak,
     workspace_paths,
     write_table,
+)
+from .diagnostics import classify_ms1_reference, classify_ms2_diagnostic
+from .similarity import (
+    ChiralPairThresholds,
+    SpectrumSimilarity,
+    classify_chiral_pair,
+    compare_fragment_spectra,
 )
 
 
@@ -63,7 +62,11 @@ def GetChiralFrag(
     mz_tol_unit: str = "legacy_fraction",
     base_path=None,
 ):
-    """兼容 R 函数名的入口；实际实现见 get_chiral_frag()."""
+    """旧式兼容入口；参数原样交给 :func:`get_chiral_frag`。
+
+    新代码不应依赖这个大写名称，而应调用逐行RT的
+    :func:`analyze_chiral_peak_pairs`。
+    """
 
     return get_chiral_frag(
         mz_tol,
@@ -85,7 +88,12 @@ def get_chiral_frag(
     mz_tol_unit: str = "legacy_fraction",
     base_path=None,
 ):
-    """手性双峰 fragment extraction。"""
+    """按旧目录布局和两个全局RT窗口批量提取双侧fragment。
+
+    它会扫描``peaklist/``与``data/``并按文件名匹配raw文件，所有目标共享
+    ``peak_a_rt_window``和``peak_b_rt_window``。该行为适合兼容历史脚本，
+    不适合当前每行具有独立``Peak1/Peak2``的正式E-ASMS流程。
+    """
 
     base = Path(base_path or ".").resolve()
     paths = workspace_paths(base)
@@ -98,12 +106,15 @@ def get_chiral_frag(
 
     # 用一个 dummy mz 提前校验 mz tolerance 参数是否合法。
     mz_bounds(1.0, mz_tol, mz_tol_unit)
-    if rt_windows["peak_a"][1] > rt_windows["peak_b"][0] and rt_windows["peak_b"][1] > rt_windows["peak_a"][0]:
-        warnings.warn("Chiral RT windows overlap; no deconvolution is performed.")
+    if (
+        rt_windows["peak_a"][1] > rt_windows["peak_b"][0]
+        and rt_windows["peak_b"][1] > rt_windows["peak_a"][0]
+    ):
+        warnings.warn("Chiral RT windows overlap; no deconvolution is performed.", stacklevel=2)
 
     peakfiles = peak_files(paths["peak"])
     if not peakfiles:
-        warnings.warn(f"No peaklist files found in {paths['peak']}; returning None.")
+        warnings.warn(f"No peaklist files found in {paths['peak']}; returning None.", stacklevel=2)
         return None
 
     msfiles = raw_files(paths["data"])
@@ -115,7 +126,7 @@ def get_chiral_frag(
             continue
         mz_col = column(rows, "mz")
         if mz_col is None:
-            warnings.warn(f"{peakfile.name} has no mz/MZ column; skipping.")
+            warnings.warn(f"{peakfile.name} has no mz/MZ column; skipping.", stacklevel=2)
             continue
 
         # 先补齐输出列，保证即使某些 feature 无结果，CSV 结构也稳定。
@@ -123,12 +134,14 @@ def get_chiral_frag(
 
         rawfile = matching_raw_file(peakfile, msfiles)
         if rawfile is None:
-            warnings.warn(f"No matching raw MS data found for peaklist {peakfile.name}; skipping.")
+            warnings.warn(
+                f"No matching raw MS data found for peaklist {peakfile.name}; skipping.",
+                stacklevel=2,
+            )
             continue
 
         spectra = load_ms2_spectra(rawfile)
         spectra_index = build_ms2_index(spectra)
-        precursor = spectra_index.precursors
         for row in rows:
             mz = number(row.get(mz_col))
             if mz is None:
@@ -137,7 +150,9 @@ def get_chiral_frag(
             if diawin is None:
                 # 没有 DIA window 时，两个手性窗口都写同一个质量标记。
                 for prefix in rt_windows:
-                    _assign_chiral_result(row, prefix, empty_window_result("no_matching_DIA_window"))
+                    _assign_chiral_result(
+                        row, prefix, empty_window_result("no_matching_DIA_window")
+                    )
                 continue
             for prefix, rt_window in rt_windows.items():
                 # 核心算法只处理“一个 feature + 一个 RT window”。
@@ -192,13 +207,19 @@ def analyze_chiral_peak_pairs(
     preloaded_index: Ms2Index | None = None,
     method_profile_path: str | Path | None = None,
 ):
-    """Analyze the per-row ``MZ + Peak1 + Peak2`` format used by this project.
+    """分析项目使用的逐行``MZ + Peak1 + Peak2``目标表。
 
-    Unlike :func:`get_chiral_frag`, this entry point does not require one pair
-    of global RT windows or filename-based raw-data matching.  Each row gets
-    two windows centered on its own picked RT values.  Close peaks receive
-    narrower windows automatically so the two extraction windows never
-    overlap.
+    这是步骤4至7的正式编排边界：读取并索引一个raw文件；逐行检查输入RT和
+    真实DIA覆盖；在Peak1/Peak2附近独立重建共洗脱多碎片谱；计算两张谱的
+    cosine、entropy、匹配fragment数和双侧解释强度；最后写出分层诊断CSV及
+    同名``.metadata.json``。
+
+    ``Peak1/Peak2``默认以分钟输入，底层统一转成秒。两峰很近时，半窗口会
+    自动缩小为间距的40%，从而在两个窗口之间保留20%空隙，减少相互污染。
+    ``preloaded_index``允许参数扫描复用raw索引以显著减少运行时间。
+
+    返回的是包含新增结果列的行列表。MS2支持相同化合物不等于确认对映体，
+    因此色谱、化合物身份和富集结论分别保存在不同状态字段。
     """
 
     started = time.perf_counter()
@@ -217,15 +238,11 @@ def analyze_chiral_peak_pairs(
     if not _is_finite_positive(dia_iso_win):
         raise ValueError("dia_iso_win must be finite and positive.")
 
-    resolved_precursor_eic_mz_tol = (
-        mz_tol if precursor_eic_mz_tol is None else precursor_eic_mz_tol
-    )
+    resolved_precursor_eic_mz_tol = mz_tol if precursor_eic_mz_tol is None else precursor_eic_mz_tol
     resolved_precursor_eic_mz_tol_unit = (
         mz_tol_unit if precursor_eic_mz_tol_unit is None else precursor_eic_mz_tol_unit
     )
-    resolved_fragment_eic_mz_tol = (
-        mz_tol if fragment_eic_mz_tol is None else fragment_eic_mz_tol
-    )
+    resolved_fragment_eic_mz_tol = mz_tol if fragment_eic_mz_tol is None else fragment_eic_mz_tol
     resolved_fragment_eic_mz_tol_unit = (
         mz_tol_unit if fragment_eic_mz_tol_unit is None else fragment_eic_mz_tol_unit
     )
@@ -233,12 +250,8 @@ def analyze_chiral_peak_pairs(
     # Validate tolerance/unit arguments before the expensive raw-data load.
     normalize_rt_window((0, 1), rt_unit)
     mz_bounds(1.0, mz_tol, mz_tol_unit)
-    mz_bounds(
-        1.0, resolved_precursor_eic_mz_tol, resolved_precursor_eic_mz_tol_unit
-    )
-    mz_bounds(
-        1.0, resolved_fragment_eic_mz_tol, resolved_fragment_eic_mz_tol_unit
-    )
+    mz_bounds(1.0, resolved_precursor_eic_mz_tol, resolved_precursor_eic_mz_tol_unit)
+    mz_bounds(1.0, resolved_fragment_eic_mz_tol, resolved_fragment_eic_mz_tol_unit)
     compare_fragment_spectra(
         "",
         "",
@@ -274,16 +287,16 @@ def analyze_chiral_peak_pairs(
     mz_col = _resolve_column(rows, mz_column)
     peak_a_col = _resolve_column(rows, peak_a_column)
     peak_b_col = _resolve_column(rows, peak_b_column)
-    missing = [
-        requested
-        for requested, resolved in (
-            (mz_column, mz_col),
-            (peak_a_column, peak_a_col),
-            (peak_b_column, peak_b_col),
-        )
-        if resolved is None
-    ]
-    if missing:
+    if mz_col is None or peak_a_col is None or peak_b_col is None:
+        missing = [
+            requested
+            for requested, resolved in (
+                (mz_column, mz_col),
+                (peak_a_column, peak_a_col),
+                (peak_b_column, peak_b_col),
+            )
+            if resolved is None
+        ]
         raise ValueError(f"Peaklist is missing required column(s): {', '.join(missing)}")
 
     _initialize_chiral_columns(rows)
@@ -295,8 +308,6 @@ def analyze_chiral_peak_pairs(
         spectra_index = build_ms2_index(spectra)
     else:
         spectra_index = preloaded_index
-    precursor = spectra_index.precursors
-
     for row in rows:
         mz = number(row.get(mz_col))
         peak_a_rt = number(row.get(peak_a_col))
@@ -310,7 +321,9 @@ def analyze_chiral_peak_pairs(
                 "not_evaluated",
                 "two_peak_retention_times_required",
                 chromatographic_status=(
-                    "input_single_peak" if peak_a_rt is not None or peak_b_rt is not None else "input_no_peak"
+                    "input_single_peak"
+                    if peak_a_rt is not None or peak_b_rt is not None
+                    else "input_no_peak"
                 ),
             )
             continue
@@ -326,9 +339,8 @@ def analyze_chiral_peak_pairs(
             _set_status_layers(row, "not_evaluable", "peak_retention_times_are_identical")
             continue
 
-        # Leave a 20% gap between windows.  This avoids cross-contaminating the
-        # spectra of close chromatographic peaks while retaining the requested
-        # half-width for well-separated peaks.
+        # 对接近的色谱峰缩窄窗口并保留20%间隔：每侧半宽=0.4×峰间距，
+        # 两个全宽合计占80%。这只是避免窗口直接重叠，并不执行色谱解卷积。
         half_width = min(float(rt_half_window_sec), separation * 0.4)
         rt_windows = {
             "peak_a": (peak_a_rt_sec - half_width, peak_a_rt_sec + half_width),
@@ -455,7 +467,11 @@ def extract_fragments_for_rt_window(
     max_fragment_apex_offset_scans: int = 1,
     min_consecutive_fragment_scans: int = 3,
 ):
-    """公开一点的单窗口 helper，便于测试或更细粒度调用。"""
+    """公开的单RT窗口提取包装，便于测试和细粒度复用。
+
+    参数语义与 :func:`ms2.extraction.extract_window_result` 相同；该包装保留
+    旧调用签名，并把独立前体/fragment EIC容差转交给底层实现。
+    """
 
     return extract_window_result(
         spectra,
@@ -481,7 +497,7 @@ def extract_fragments_for_rt_window(
 
 
 def _initialize_chiral_columns(rows: list[dict]):
-    """给每一行预先加 peak_a_* / peak_b_* 输出列。"""
+    """为每一行预建两侧谱、apex、面积、计数和质量标记列。"""
 
     for row in rows:
         for prefix in ("peak_a", "peak_b"):
@@ -497,7 +513,7 @@ def _initialize_chiral_columns(rows: list[dict]):
 
 
 def _initialize_similarity_columns(rows: list[dict]):
-    """Add stable scalar columns for windows, similarity, and classification."""
+    """预建RT窗口、DIA、相似度及分层诊断列，保证CSV schema稳定。"""
 
     columns = (
         "peak_a_rt_window_start",
@@ -534,7 +550,7 @@ def _initialize_similarity_columns(rows: list[dict]):
 
 
 def _assign_chiral_result(row: dict, prefix: str, result: dict):
-    """把一个 window result dict 写回 CSV row。"""
+    """把一个RT窗口的提取结果写回``peak_a_*``或``peak_b_*``列。"""
 
     row[f"{prefix}_MS2"] = result["MS2"]
     row[f"{prefix}_apex_rt"] = csv_scalar(result["apex_rt"])
@@ -553,6 +569,8 @@ def _assign_similarity_result(
     status: str,
     reason: str,
 ):
+    """写入数值相似度指标，再调用统一状态分层逻辑。"""
+
     row["ms2_cosine"] = csv_scalar(similarity.cosine)
     row["ms2_entropy_similarity"] = csv_scalar(similarity.entropy_similarity)
     row["ms2_matched_peaks"] = csv_scalar(similarity.matched_peaks)
@@ -571,7 +589,11 @@ def _set_status_layers(
     chromatographic_status: str = "input_double_peak",
     similarity: SpectrumSimilarity | None = None,
 ):
-    """Keep chromatographic, identity, and enrichment conclusions separate."""
+    """分别记录色谱、MS2身份支持、候选双峰和富集结论。
+
+    当前分析没有input/eluate重复及统计检验，因此无论MS2是否支持同一化合物，
+    ``enantioselective_enrichment_status``都明确写为未评价。
+    """
 
     row["enantiomer_pair_status"] = status
     row["enantiomer_pair_reason"] = reason
@@ -603,7 +625,7 @@ def _set_status_layers(
 
 
 def _resolve_column(rows: list[dict], requested: str) -> str | None:
-    """Prefer an exact header (important when both ``mz`` and ``MZ`` exist)."""
+    """优先精确匹配表头；只有失败时才进行不区分大小写匹配。"""
 
     if requested in rows[0]:
         return requested
@@ -611,6 +633,8 @@ def _resolve_column(rows: list[dict], requested: str) -> str | None:
 
 
 def _rt_to_seconds(value: float, unit: str) -> float:
+    """把单个RT值从分钟或秒统一转换为秒。"""
+
     if unit == "min":
         return value * 60
     if unit == "sec":
@@ -619,6 +643,8 @@ def _rt_to_seconds(value: float, unit: str) -> float:
 
 
 def _is_finite_positive(value) -> bool:
+    """判断参数是否可转换为严格正的有限浮点数。"""
+
     try:
         value = float(value)
     except (TypeError, ValueError):
@@ -637,6 +663,13 @@ def _write_run_metadata(
     parameters: dict,
     method_profile_path: str | Path | None = None,
 ):
+    """写出可复现运行所需的JSON sidecar。
+
+    sidecar记录参数、状态计数、Python版本、耗时、输入文件指纹、raw实测采集
+    信息、参考方法profile以及逐个DIA窗口边界。参考方法只作为独立来源层，
+    永远不会覆盖raw-observed元数据。
+    """
+
     counts: dict[str, int] = {}
     ms2_diagnostic_counts: dict[str, int] = {}
     ms1_reference_counts: dict[str, int] = {}
@@ -659,7 +692,7 @@ def _write_run_metadata(
             )
     metadata = {
         "schema_version": "msai-chiral-ms2-v3-separated-diagnostics",
-        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "created_utc": datetime.now(UTC).isoformat(),
         "python": platform.python_version(),
         "elapsed_seconds": elapsed_seconds,
         "rows_processed": len(rows),
@@ -714,6 +747,8 @@ def _write_run_metadata(
 
 
 def _file_fingerprint(path: Path) -> dict:
+    """返回文件路径、大小、mtime和分块计算的SHA-256指纹。"""
+
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while chunk := handle.read(1024 * 1024):
@@ -755,8 +790,14 @@ def _demo():
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Extract and compare MS2 spectra for per-row chiral LC peak pairs.")
-    parser.add_argument("--peaklist", required=True, help="CSV/XLSX containing MZ, Peak1, and Peak2 columns.")
+    """解析``analyze``命令参数，运行正式逐行MS2分析并打印状态计数。"""
+
+    parser = argparse.ArgumentParser(
+        description="Extract and compare MS2 spectra for per-row chiral LC peak pairs."
+    )
+    parser.add_argument(
+        "--peaklist", required=True, help="CSV/XLSX containing MZ, Peak1, and Peak2 columns."
+    )
     parser.add_argument("--raw", required=True, help="Matching mzXML/mzML raw MS file.")
     parser.add_argument("--output", help="Output CSV; defaults to the project results directory.")
     parser.add_argument("--mz-column", default="MZ")

@@ -1,0 +1,16 @@
+{
+  "include": [
+    "MSAI/python",
+    "tests"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".scratch",
+    "MSAI/data",
+    "MSAI/results"
+  ],
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": "none"
+}

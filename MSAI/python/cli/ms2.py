@@ -13,18 +13,24 @@ import sys
 
 
 def analyze_main(argv):
+    """延迟加载并执行核心Peak1/Peak2 MS2分析命令。"""
+
     from ..ms2.pipeline import main
 
     return main(argv)
 
 
 def report_main(argv):
+    """延迟加载并执行紧凑HTML/CSV技术报告命令。"""
+
     from ..ms2_review.report import main
 
     return main(argv)
 
 
 def export_review_main(argv):
+    """延迟加载并执行逐目标SVG/PNG人工复核导出命令。"""
+
     from ..export_ms2_spectrum_review import main
 
     return main(argv)
@@ -38,6 +44,8 @@ COMMANDS = {
 
 
 def main(argv=None):
+    """统一路由``analyze``、``report``和``export-review``子命令。"""
+
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in {"-h", "--help"}:
         names = "\n".join(

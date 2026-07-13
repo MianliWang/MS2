@@ -6,12 +6,24 @@ import math
 import statistics
 
 try:
-    from ..source_context import folder_component, source_machine_label_interpretation
+    from ..source_context import (
+        folder_component,
+    )
+    from ..source_context import (
+        source_machine_label_interpretation as source_machine_label_interpretation,
+    )
 except ImportError:
-    from source_context import folder_component, source_machine_label_interpretation  # type: ignore
+    from source_context import (  # type: ignore[import-not-found]
+        folder_component,
+    )
+    from source_context import (
+        source_machine_label_interpretation as source_machine_label_interpretation,
+    )
 
 
 def reference_chromatographic_status(row: dict) -> str:
+    """仅依据人工/上游提供的Peak1、Peak2判断参考单峰、双峰或无峰。"""
+
     has_first = _number(row.get("Peak1")) is not None
     has_second = _number(row.get("Peak2")) is not None
     if has_first and has_second:
@@ -22,7 +34,7 @@ def reference_chromatographic_status(row: dict) -> str:
 
 
 def manual_chromatographic_status(row: dict) -> str:
-    """Backward-compatible alias for the supplied/legacy RT reference."""
+    """``reference_chromatographic_status``的旧名称兼容别名。"""
 
     return reference_chromatographic_status(row)
 
@@ -34,10 +46,16 @@ def prediction_diagnostic(
     *,
     rt_tolerance_min: float = 0.1,
 ) -> str:
-    """Compare class and localization without treating MS1 as MS2 evidence."""
+    """同时比较自动类别和RT定位，但不把MS1结果当作MS2身份依据。
+
+    类别一致但预测RT超出容差会返回``rt_mislocalized``，防止算法在色谱图
+    其他位置找到两个峰却被误计为正确。
+    """
 
     reference_status = reference_chromatographic_status(row)
-    reference_rts = [value for name in ("Peak1", "Peak2") if (value := _number(row.get(name))) is not None]
+    reference_rts = [
+        value for name in ("Peak1", "Peak2") if (value := _number(row.get(name))) is not None
+    ]
     expected_auto = "not_evaluable" if reference_status == "no_peak" else reference_status
     if predicted_status != expected_auto:
         return "class_mismatch"
@@ -45,7 +63,10 @@ def prediction_diagnostic(
         return "exact_agreement"
     if len(reference_rts) != len(predicted_rts_min):
         return "class_mismatch"
-    if all(abs(left - right) <= rt_tolerance_min for left, right in zip(reference_rts, predicted_rts_min)):
+    if all(
+        abs(left - right) <= rt_tolerance_min
+        for left, right in zip(reference_rts, predicted_rts_min, strict=True)
+    ):
         return "exact_agreement"
     return "rt_mislocalized"
 
@@ -58,14 +79,19 @@ def background_diagnostics(
     exclusion_half_width_sec: float = 20.0,
     absolute_height_floor: float = 200_000.0,
 ) -> dict[str, float | bool]:
-    """Summarize off-peak cleanliness and flag low-but-clean review candidates."""
+    """汇总峰外背景干净程度，并标记“低但干净”的人工复核候选。
+
+    在保护RT区域之外计算median、MAD、p95/p99、非零比例和峰/background p99；
+    低于绝对高度门槛但背景p99很低、非零点少且半高支持充分时标记
+    ``low_clean_candidate``，而不是直接归为无信号。
+    """
 
     raw = [max(0.0, float(value)) for value in intensities]
     maximum = max(raw, default=0.0)
     protected_sec = [value * 60 for value in protected_rts_min]
     background = [
         intensity
-        for rt, intensity in zip(rts_sec, raw)
+        for rt, intensity in zip(rts_sec, raw, strict=True)
         if all(abs(rt - center) > exclusion_half_width_sec for center in protected_sec)
     ]
     if not background:
@@ -108,6 +134,8 @@ def review_views(
     source_machine_label: str = "",
     source_machine_interpretation: str = "",
 ) -> list[str]:
+    """按参考类别、自动结果、参数稳定性和背景质量返回MS1审核文件夹。"""
+
     views = [
         f"reference_ms1/supplied_rt/{reference_status}",
         f"auto_ms1/baseline/{baseline_status}",
@@ -144,6 +172,8 @@ def review_views(
 
 
 def _quantile(values: list[float], probability: float) -> float:
+    """使用线性插值计算小型背景数组分位数。"""
+
     if not values:
         return 0.0
     ordered = sorted(values)
@@ -157,6 +187,8 @@ def _quantile(values: list[float], probability: float) -> float:
 
 
 def _half_height_support(values: list[float]) -> int:
+    """返回全局最高峰周围连续半高以上scan数量。"""
+
     if not values or max(values) <= 0:
         return 0
     apex = max(range(len(values)), key=values.__getitem__)
@@ -171,6 +203,8 @@ def _half_height_support(values: list[float]) -> int:
 
 
 def _number(value) -> float | None:
+    """安全转换有限浮点数；失败时返回``None``。"""
+
     try:
         result = float(value)
     except (TypeError, ValueError):

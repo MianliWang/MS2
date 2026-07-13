@@ -40,11 +40,17 @@ def extract_window_result(
     max_fragment_apex_offset_scans: int = 1,
     min_consecutive_fragment_scans: int = 3,
 ) -> dict:
-    """Extract coeluting fragments for one feature and one RT window.
+    """在一个目标、一个DIA窗口和一个RT窗口内重建共洗脱碎片谱。
 
-    ``mz_tol`` remains the backwards-compatible shared EIC tolerance.  The
-    optional precursor and fragment-EIC values let a calibrated method apply a
-    narrow precursor window without silently changing fragment trace merging.
+    处理步骤：先提取目标前体EIC并确定apex；再从最强的一个或多个consensus
+    scans收集低于前体至少10 Da的候选fragment；随后为每个fragment重新提取
+    色谱轨迹，并用强度、连续支持和前体/碎片共洗脱相关性筛选。返回值同时
+    包含谱字符串、全精度碎片数组、apex、面积、计数和质量标记。
+
+    ``mz_tol``是向后兼容的共享容差。独立的``precursor_mz_tol``与
+    ``fragment_eic_mz_tol``允许前体提取和fragment centroid合并分别校准，
+    避免修改一个参数时无意改变另一阶段。该函数只重建证据，不判断两张谱
+    是否属于同一化合物。
     """
 
     precursor_mz_tol = mz_tol if precursor_mz_tol is None else precursor_mz_tol
@@ -63,9 +69,7 @@ def extract_window_result(
     if consensus_scans < 1:
         raise ValueError("consensus_scans must be at least 1.")
     if fragment_correlation_mode not in {"full_window", "active_support"}:
-        raise ValueError(
-            "fragment_correlation_mode must be 'full_window' or 'active_support'."
-        )
+        raise ValueError("fragment_correlation_mode must be 'full_window' or 'active_support'.")
     if not 0 <= correlation_min_relative_intensity < 1:
         raise ValueError("correlation_min_relative_intensity must be in [0, 1).")
     if min_correlation_scans < 2:
@@ -79,9 +83,7 @@ def extract_window_result(
     if not dia.spectra:
         return empty_window_result("no_ms2_scans")
 
-    mzmin, mzmax = _clamped_bounds(
-        precurmz, precursor_mz_tol, precursor_mz_tol_unit, dia.mzrange
-    )
+    mzmin, mzmax = _clamped_bounds(precurmz, precursor_mz_tol, precursor_mz_tol_unit, dia.mzrange)
     if mzmin >= mzmax:
         return empty_window_result("mz_out_of_range")
 
@@ -94,28 +96,30 @@ def extract_window_result(
     if scan_count < 1:
         return empty_window_result("no_ms2_scans", 0)
 
+    # “native”是目标前体在当前DIA窗口内的EIC，后续所有fragment都必须
+    # 在相同RT采样点上与它比较，才能判断是否真正共同洗脱。
     native = _raw_eic(dia, mzmin, mzmax, rtmin, rtmax)
     peak_summary = summarize_xic_peak(native)
     flags = _split_flags(peak_summary["quality_flags"])
     if not native.scan or not native.intensity:
-        return merge_window_result(peak_summary, "", scan_count, flags + ["no_fragment_scan"])
+        return merge_window_result(peak_summary, "", scan_count, [*flags, "no_fragment_scan"])
     if max(native.intensity) <= 0:
-        return merge_window_result(peak_summary, "", scan_count, flags + ["no_precursor_signal"])
+        return merge_window_result(peak_summary, "", scan_count, [*flags, "no_precursor_signal"])
 
     apex_position = max(range(len(native.intensity)), key=lambda index: native.intensity[index])
     apex_scan = native.scan[apex_position]
     if apex_scan >= len(dia.spectra):
-        return merge_window_result(peak_summary, "", scan_count, flags + ["invalid_apex_scan"])
+        return merge_window_result(peak_summary, "", scan_count, [*flags, "invalid_apex_scan"])
 
+    # consensus_scans>1时合并若干最强前体扫描的候选fragment，提高低丰度
+    # 碎片召回；最终强度仍来自完整RT窗口的fragment trace最大值。
     selected_positions = sorted(
         range(len(native.intensity)),
         key=lambda position: native.intensity[position],
         reverse=True,
     )
     selected_scans = [
-        native.scan[position]
-        for position in selected_positions
-        if native.intensity[position] > 0
+        native.scan[position] for position in selected_positions if native.intensity[position] > 0
     ][:consensus_scans]
     candidate_peaks = [
         (mz, intensity)
@@ -123,6 +127,7 @@ def extract_window_result(
         for mz, intensity in zip(
             dia.spectra[scan_index].mz,
             dia.spectra[scan_index].intensity,
+            strict=True,
         )
         if mz < precurmz - 10 and intensity > 0
     ]
@@ -134,7 +139,7 @@ def extract_window_result(
             peak_summary,
             "",
             scan_count,
-            flags + ["no_candidate_fragments"],
+            [*flags, "no_candidate_fragments"],
             consensus_scan_count=len(selected_scans),
         )
 
@@ -189,7 +194,7 @@ def extract_window_result(
         consensus_scan_count=len(selected_scans),
         candidate_fragment_count=len(candidates),
         fragment_count=len(fragment_mz),
-        fragment_peaks=list(zip(fragment_mz, fragment_intensity)),
+        fragment_peaks=list(zip(fragment_mz, fragment_intensity, strict=True)),
     )
 
 
@@ -198,7 +203,11 @@ def _merge_candidate_peaks(
     mz_tol: float,
     mz_tol_unit: str,
 ) -> list[float]:
-    """Merge repeated centroid peaks from several apex-adjacent scans."""
+    """合并多个apex邻近扫描中重复出现的centroid fragment。
+
+    每个cluster以强度加权m/z为中心，并使用与fragment EIC相同的容差决定
+    下一个centroid是否仍属于该cluster。
+    """
 
     if not peaks:
         return []
@@ -225,6 +234,8 @@ def _clamped_bounds(
     mz_tol_unit: str,
     mzrange: tuple[float, float],
 ) -> tuple[float, float]:
+    """计算目标m/z容差边界，并裁剪到DIA数据实际m/z范围。"""
+
     low, high = mz_bounds(mz, mz_tol, mz_tol_unit)
     return max(mzrange[0], low), min(mzrange[1], high)
 
@@ -239,7 +250,12 @@ def _trace_correlation(
     max_apex_offset_scans: int,
     min_consecutive_fragment_scans: int,
 ) -> float | None:
-    """Return legacy or common-zero-resistant chromatographic correlation."""
+    """计算前体与fragment色谱轨迹的相关性。
+
+    ``full_window``复现旧版整窗Pearson；``active_support``先要求apex位置接近、
+    前体有效支持点足够且fragment连续出现，再只在前体活跃区计算，从而减少
+    窗口两端大量共同零值导致的虚高相关。
+    """
 
     if len(precursor) != len(fragment) or not precursor:
         return None
@@ -260,9 +276,10 @@ def _trace_correlation(
     support = [index for index, value in enumerate(precursor) if value >= precursor_cutoff]
     if len(support) < min_scans:
         return None
-    if _longest_consecutive_run(
-        index for index in support if fragment[index] >= fragment_cutoff
-    ) < min_consecutive_fragment_scans:
+    if (
+        _longest_consecutive_run(index for index in support if fragment[index] >= fragment_cutoff)
+        < min_consecutive_fragment_scans
+    ):
         return None
     return pearson_correlation(
         [precursor[index] for index in support],
@@ -271,6 +288,8 @@ def _trace_correlation(
 
 
 def _longest_consecutive_run(indices) -> int:
+    """返回升序扫描下标中最长的连续区段长度。"""
+
     best = current = 0
     previous = None
     for index in indices:

@@ -4,7 +4,10 @@ import unittest
 from pathlib import Path
 
 from MSAI.python.chiral_similarity import ChiralPairThresholds, SpectrumSimilarity
-from MSAI.python.diagnostic_standards import classify_ms1_reference, classify_ms2_diagnostic
+from MSAI.python.diagnostic_standards import (
+    classify_ms1_reference,
+    classify_ms2_diagnostic,
+)
 from MSAI.python.ms2_review_report import annotate_rows, build_report
 
 
@@ -86,7 +89,7 @@ class ReportTests(unittest.TestCase):
             template = Path("MSAI/templates/ms2_review_report_shell.html")
             outputs = build_report(source, root / "report", template_path=template)
             report = outputs["report"].read_text(encoding="utf-8")
-            self.assertIn("data-contract-section=\"technical-summary\"", report)
+            self.assertIn('data-contract-section="technical-summary"', report)
             self.assertIn("Peak 1 and Peak 2 mirror spectrum", report)
             self.assertNotIn("DATA_ANALYTICS_HTML_REPORT_RUNTIME", report)
             with outputs["queue"].open(encoding="utf-8-sig", newline="") as handle:

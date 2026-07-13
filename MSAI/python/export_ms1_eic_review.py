@@ -8,10 +8,12 @@ import json
 try:
     from .ms1_review import export_ms1_review
 except ImportError:
-    from ms1_review import export_ms1_review  # type: ignore
+    from ms1_review import export_ms1_review  # type: ignore[import-not-found]
 
 
 def main(argv=None):
+    """解析MS1 baseline/experimental/candidate配置并导出审核图。"""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--peaklist", required=True)
     parser.add_argument("--raw", required=True)

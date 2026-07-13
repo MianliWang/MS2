@@ -14,11 +14,11 @@ from pathlib import Path
 try:
     from ..ms2.raw_metadata import raw_acquisition_context
 except ImportError:
-    from ms2.raw_metadata import raw_acquisition_context  # type: ignore
+    from ms2.raw_metadata import raw_acquisition_context  # type: ignore[import-not-found]
 
 
 def load_method_profile(path: str | Path | None) -> dict:
-    """Load a versioned reference-method profile, or return an empty mapping."""
+    """加载带``profile_id``的版本化参考方法；未提供路径时返回空字典。"""
 
     if not path:
         return {}
@@ -38,7 +38,12 @@ def reconcile_acquisition(
     dia_windows: list[dict] | None = None,
     raw_input_count: int = 1,
 ) -> dict:
-    """Compare provenance layers without claiming that they describe one run."""
+    """比较raw实测、参考方法和分析参数三个来源层。
+
+    返回匹配项、差异问题代码和逐字段比较，但不会假定论文方法一定描述当前
+    raw文件，也不会用参考值改写raw边界。该结果用于图像提示和方法审计，
+    不直接改变某个化合物的MS2相似度状态。
+    """
 
     if not reference_method:
         return {
@@ -49,7 +54,7 @@ def reconcile_acquisition(
         }
 
     parameters = analysis_parameters or {}
-    dia = ((reference_method.get("acquisition") or {}).get("dia") or {})
+    dia = (reference_method.get("acquisition") or {}).get("dia") or {}
     processing = reference_method.get("processing_reference") or {}
     applicability = reference_method.get("applicability") or {}
     issue_codes: list[str] = []
@@ -83,7 +88,8 @@ def reconcile_acquisition(
 
     raw_collision = _numeric_observed_values(observed_raw, "collisionEnergy")
     reference_collision = [
-        value for value in (_number(item) for item in dia.get("stepped_hcd_percent", []))
+        value
+        for value in (_number(item) for item in dia.get("stepped_hcd_percent", []))
         if value is not None
     ]
     if raw_collision and reference_collision and set(raw_collision) != set(reference_collision):
@@ -99,8 +105,10 @@ def reconcile_acquisition(
 
     raw_activation = _observed_values(observed_raw, "activationMethod")
     reference_activation = str(dia.get("activation_method") or "")
-    if reference_activation and raw_activation and all(
-        value.upper() == reference_activation.upper() for value in raw_activation
+    if (
+        reference_activation
+        and raw_activation
+        and all(value.upper() == reference_activation.upper() for value in raw_activation)
     ):
         matches.append("ACTIVATION_METHOD_HCD")
 
@@ -134,7 +142,11 @@ def reconcile_acquisition(
 
     reference_rt = _number(processing.get("precursor_fragment_rt_alignment_sec"))
     analysis_rt = _number(parameters.get("rt_half_window_sec"))
-    if reference_rt is not None and analysis_rt is not None and not _close(reference_rt, analysis_rt):
+    if (
+        reference_rt is not None
+        and analysis_rt is not None
+        and not _close(reference_rt, analysis_rt)
+    ):
         issue_codes.append("REFERENCE_RT_ALIGNMENT_DIFFERS_FROM_EXTRACTION_WINDOW")
     comparisons.append(
         {
@@ -145,15 +157,13 @@ def reconcile_acquisition(
         }
     )
 
-    lab_ppm = _number(((processing.get("mass_tolerance_ppm") or {}).get("value")))
+    lab_ppm = _number((processing.get("mass_tolerance_ppm") or {}).get("value"))
     precursor_value = parameters.get("precursor_eic_mz_tol", parameters.get("mz_tol"))
     precursor_unit = parameters.get("precursor_eic_mz_tol_unit", parameters.get("mz_tol_unit"))
     fragment_value = parameters.get("fragment_eic_mz_tol", parameters.get("mz_tol"))
     fragment_unit = parameters.get("fragment_eic_mz_tol_unit", parameters.get("mz_tol_unit"))
     analysis_ppm = _number(precursor_value) if str(precursor_unit or "") == "ppm" else None
-    fragment_analysis_ppm = (
-        _number(fragment_value) if str(fragment_unit or "") == "ppm" else None
-    )
+    fragment_analysis_ppm = _number(fragment_value) if str(fragment_unit or "") == "ppm" else None
     if lab_ppm is not None and analysis_ppm is not None and not _close(lab_ppm, analysis_ppm):
         issue_codes.append("LAB_NOTE_3PPM_NOT_APPLIED_TO_CURRENT_MS2_EXTRACTION")
     comparisons.append(
@@ -168,10 +178,11 @@ def reconcile_acquisition(
 
     if dia_windows:
         bounds = [
-            (_number(window.get("lower")), _number(window.get("upper")))
-            for window in dia_windows
+            (_number(window.get("lower")), _number(window.get("upper"))) for window in dia_windows
         ]
-        finite = [(lower, upper) for lower, upper in bounds if lower is not None and upper is not None]
+        finite = [
+            (lower, upper) for lower, upper in bounds if lower is not None and upper is not None
+        ]
         if finite:
             comparisons.append(
                 {
@@ -193,15 +204,25 @@ def reconcile_acquisition(
 
 
 def _observed_values(context: dict, key: str) -> list[str]:
+    """从raw acquisition context取出某属性的去结构化文本值。"""
+
     values = (context.get("observed_values") or {}).get(key) or []
     return [str(item.get("value")) for item in values if item.get("value") is not None]
 
 
 def _numeric_observed_values(context: dict, key: str) -> list[float]:
-    return [value for value in (_number(item) for item in _observed_values(context, key)) if value is not None]
+    """取出某raw属性中能够安全转换的有限数值。"""
+
+    return [
+        value
+        for value in (_number(item) for item in _observed_values(context, key))
+        if value is not None
+    ]
 
 
 def _number(value) -> float | None:
+    """转换有限浮点数，失败、NaN或无穷大返回``None``。"""
+
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -210,11 +231,15 @@ def _number(value) -> float | None:
 
 
 def _integer(value) -> int | None:
+    """把可用数值转换为整数；缺失时返回``None``。"""
+
     number = _number(value)
     return None if number is None else int(number)
 
 
 def _close(left: float, right: float) -> bool:
+    """以严格数值容差判断两个方法参数是否相同。"""
+
     return math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-9)
 
 

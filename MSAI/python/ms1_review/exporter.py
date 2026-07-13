@@ -10,7 +10,8 @@ import os
 import shutil
 import statistics
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 
 try:
@@ -24,7 +25,7 @@ try:
     )
     from ..ms2 import number, read_table
 except ImportError:
-    from ms1_peak_picker import (  # type: ignore
+    from ms1_peak_picker import (  # type: ignore[import-not-found]
         PeakPickingConfig,
         enumerate_peak_candidates,
         extract_target_eics_with_config,
@@ -32,7 +33,7 @@ except ImportError:
         pick_chiral_peaks,
         savgol_smooth,
     )
-    from ms2 import number, read_table  # type: ignore
+    from ms2 import number, read_table  # type: ignore[import-not-found]
 from .classification import (
     background_diagnostics,
     prediction_diagnostic,
@@ -40,8 +41,8 @@ from .classification import (
     review_views,
     source_machine_label_interpretation,
 )
-from .svg import render_eic_svg
 from .png import render_eic_png
+from .svg import render_eic_svg
 
 
 def export_ms1_review(
@@ -59,11 +60,21 @@ def export_ms1_review(
     image_formats: tuple[str, ...] = ("svg", "png"),
     png_scale: float = 2.0,
 ) -> dict:
+    """批量生成MS1 EIC的参数对照图和人工审核目录。
+
+    raw只解析一次；每个目标分别运行baseline、experimental和高召回candidate
+    配置，并把人工RT、原始EIC、两种平滑曲线、预测峰及全部候选画在同一图中。
+    输出同时按低而干净、近肩峰、参数回归/改进、机器标签等视图分类，并可
+    只把MS2状态作为跨阶段上下文显示，绝不混入MS1诊断标准。
+    """
+
     peaklist_path, raw_path, output_dir = map(Path, (peaklist_path, raw_path, output_dir))
     image_formats = _normalise_image_formats(image_formats)
     if png_scale <= 0:
         raise ValueError("png_scale must be positive")
-    baseline_config = load_peak_config(baseline_config_path) if baseline_config_path else PeakPickingConfig()
+    baseline_config = (
+        load_peak_config(baseline_config_path) if baseline_config_path else PeakPickingConfig()
+    )
     experimental_config = (
         load_peak_config(experimental_config_path) if experimental_config_path else baseline_config
     )
@@ -90,9 +101,9 @@ def export_ms1_review(
     manifest: list[dict] = []
     view_index: list[dict] = []
     view_files: dict[str, list[dict[str, str]]] = {}
-    median_scan_interval = statistics.median(
-        right - left for left, right in zip(rts, rts[1:])
-    ) if len(rts) > 1 else 0.0
+    median_scan_interval = (
+        statistics.median(right - left for left, right in pairwise(rts)) if len(rts) > 1 else 0.0
+    )
     for row_index, row in enumerate(rows, start=1):
         mz = number(row.get(mz_column))
         if mz is None or mz not in traces:
@@ -103,18 +114,30 @@ def export_ms1_review(
         review_candidates = enumerate_peak_candidates(rts, raw, candidate_config)
         baseline_smooth = _smooth(raw, baseline_config)
         experimental_smooth = _smooth(raw, experimental_config)
-        reference_rts = [value for name in ("Peak1", "Peak2") if (value := number(row.get(name))) is not None]
+        reference_rts = [
+            value for name in ("Peak1", "Peak2") if (value := number(row.get(name))) is not None
+        ]
         reference_status = reference_chromatographic_status(row)
         source_machine_id = str(source_machine_label_column or "").strip().upper()
-        source_machine_label = str(row.get(source_machine_label_column, "") or "").strip() if source_machine_label_column else ""
+        source_machine_label = (
+            str(row.get(source_machine_label_column, "") or "").strip()
+            if source_machine_label_column
+            else ""
+        )
         source_machine_interpretation = source_machine_label_interpretation(source_machine_label)
         baseline_rts = [peak.rt_sec / 60 for peak in baseline_result.peaks]
         experimental_rts = [peak.rt_sec / 60 for peak in experimental_result.peaks]
         baseline_diagnostic = prediction_diagnostic(
-            row, baseline_result.chromatographic_status, baseline_rts, rt_tolerance_min=rt_tolerance_min
+            row,
+            baseline_result.chromatographic_status,
+            baseline_rts,
+            rt_tolerance_min=rt_tolerance_min,
         )
         experimental_diagnostic = prediction_diagnostic(
-            row, experimental_result.chromatographic_status, experimental_rts, rt_tolerance_min=rt_tolerance_min
+            row,
+            experimental_result.chromatographic_status,
+            experimental_rts,
+            rt_tolerance_min=rt_tolerance_min,
         )
         stability = _parameter_stability(
             baseline_result.chromatographic_status,
@@ -129,19 +152,21 @@ def export_ms1_review(
             protected,
             absolute_height_floor=baseline_config.min_height or 0.0,
         )
-        compound_id = str(row.get("Compound_ID") or row.get("SGC ID for Component") or f"row-{row_index}")
+        compound_id = str(
+            row.get("Compound_ID") or row.get("SGC ID for Component") or f"row-{row_index}"
+        )
         ms2_status = ms2_by_compound.get(compound_id, "")
         target_uid = _target_uid(dataset_id, run_id, compound_id, mz)
         filename_base = (
-            f"{_safe_name(compound_id)}__{run_id}__mz{mz:.5f}"
-            f"__t-{target_uid}__cfg-{config_hash}"
+            f"{_safe_name(compound_id)}__{run_id}__mz{mz:.5f}__t-{target_uid}__cfg-{config_hash}"
         )
         metadata = {
             "reference_status": reference_status,
             "source_machine_context": (
                 f"{source_machine_id} label: {source_machine_label or '—'}"
                 f" ({source_machine_interpretation})"
-                if source_machine_id else "no source-machine label"
+                if source_machine_id
+                else "no source-machine label"
             ),
             "baseline_status": baseline_result.chromatographic_status,
             "experimental_status": experimental_result.chromatographic_status,
@@ -152,26 +177,30 @@ def export_ms1_review(
             "min_height": baseline_config.min_height,
             "max_intensity": max(raw, default=0.0),
             "baseline_label": _config_label("baseline", baseline_config, median_scan_interval),
-            "experimental_label": _config_label("experimental", experimental_config, median_scan_interval),
+            "experimental_label": _config_label(
+                "experimental", experimental_config, median_scan_interval
+            ),
             "baseline_metrics": _result_metrics(baseline_result),
             "experimental_metrics": _result_metrics(experimental_result),
-            "candidate_label": _config_label("high-recall candidates", candidate_config, median_scan_interval),
+            "candidate_label": _config_label(
+                "high-recall candidates", candidate_config, median_scan_interval
+            ),
             "candidate_count": len(review_candidates),
             **background,
         }
         svg = render_eic_svg(
-                compound_id=compound_id,
-                target_mz=mz,
-                ppm=baseline_config.eic_ppm,
-                rts_sec=rts,
-                raw=raw,
-                baseline_smooth=baseline_smooth,
-                experimental_smooth=experimental_smooth,
-                manual_rts_min=reference_rts,
-                baseline_peaks=baseline_result.peaks,
-                experimental_peaks=experimental_result.peaks,
-                review_candidates=review_candidates,
-                metadata=metadata,
+            compound_id=compound_id,
+            target_mz=mz,
+            ppm=baseline_config.eic_ppm,
+            rts_sec=rts,
+            raw=raw,
+            baseline_smooth=baseline_smooth,
+            experimental_smooth=experimental_smooth,
+            manual_rts_min=reference_rts,
+            baseline_peaks=baseline_result.peaks,
+            experimental_peaks=experimental_result.peaks,
+            review_candidates=review_candidates,
+            metadata=metadata,
         )
         canonical_paths: dict[str, Path] = {}
         if "svg" in image_formats:
@@ -267,11 +296,13 @@ def export_ms1_review(
                 "eic_ppm": baseline_config.eic_ppm,
                 "svg_asset_path": (
                     canonical_paths["svg"].relative_to(output_dir).as_posix()
-                    if "svg" in canonical_paths else ""
+                    if "svg" in canonical_paths
+                    else ""
                 ),
                 "png_asset_path": (
                     canonical_paths["png"].relative_to(output_dir).as_posix()
-                    if "png" in canonical_paths else ""
+                    if "png" in canonical_paths
+                    else ""
                 ),
                 "reference_status": reference_status,
                 "supplied_peak1_rt_min": row.get("Peak1", ""),
@@ -291,9 +322,12 @@ def export_ms1_review(
                 "parameter_stability": stability,
                 "consensus_auto_status": (
                     baseline_result.chromatographic_status
-                    if stability == "stable_class_and_rt" else "manual_review_required"
+                    if stability == "stable_class_and_rt"
+                    else "manual_review_required"
                 ),
-                "supplied_close_double": str("review_queues/close_or_shoulder_double" in views).lower(),
+                "supplied_close_double": str(
+                    "review_queues/close_or_shoulder_double" in views
+                ).lower(),
                 "low_clean_candidate": str(background["low_clean_candidate"]).lower(),
                 "background_p99": background["background_p99"],
                 "background_nonzero_fraction": background["background_nonzero_fraction"],
@@ -302,10 +336,10 @@ def export_ms1_review(
                 "cross_stage_ms2_diagnostic_status": ms2_status,
                 "high_recall_candidate_count": len(review_candidates),
                 "high_recall_candidate_rts_min": ";".join(
-                    f"{candidate.rt_sec/60:.6g}" for candidate in review_candidates
+                    f"{candidate.rt_sec / 60:.6g}" for candidate in review_candidates
                 ),
                 "high_recall_candidate_details": ";".join(
-                    f"rt={candidate.rt_sec/60:.6g}|prom={_value(candidate.prominence)}|ratio={_value(candidate.prominence_ratio)}|support={candidate.support_scans or ''}"
+                    f"rt={candidate.rt_sec / 60:.6g}|prom={_value(candidate.prominence)}|ratio={_value(candidate.prominence_ratio)}|support={candidate.support_scans or ''}"
                     for candidate in review_candidates
                 ),
                 "high_recall_pair_covers_supplied_double": str(
@@ -318,7 +352,9 @@ def export_ms1_review(
 
     _write_manifest(metadata_dir / "target_manifest.csv", manifest)
     _write_manifest(metadata_dir / "view_index.csv", view_index)
-    _write_annotation_template(output_dir / "annotations" / "_template" / "review_labels.csv", manifest)
+    _write_annotation_template(
+        output_dir / "annotations" / "_template" / "review_labels.csv", manifest
+    )
     _write_galleries(output_dir, view_files)
     summary = _summary(
         manifest,
@@ -360,11 +396,17 @@ def export_ms1_review(
 
 
 def _smooth(raw: list[float], config: PeakPickingConfig) -> list[float]:
+    """按实际序列长度调整为合法奇数窗口后执行SG平滑。"""
+
     window = min(config.sg_window, len(raw) if len(raw) % 2 else len(raw) - 1)
-    return savgol_smooth(raw, window, min(config.sg_polyorder, window - 1)) if window >= 3 else raw[:]
+    return (
+        savgol_smooth(raw, window, min(config.sg_polyorder, window - 1)) if window >= 3 else raw[:]
+    )
 
 
 def _prepare_output(output_dir: Path) -> None:
+    """重新建立本导出器拥有的assets、views、metadata等目录。"""
+
     resolved = output_dir.resolve()
     if len(resolved.parts) < 3 or resolved.name in {"", ".", ".."}:
         raise ValueError(f"Unsafe output directory: {resolved}")
@@ -378,6 +420,8 @@ def _prepare_output(output_dir: Path) -> None:
 
 
 def _hardlink(source: Path, destination: Path) -> None:
+    """优先硬链接规范图到多个视图；不可用时复制。"""
+
     if destination.exists():
         destination.unlink()
     try:
@@ -390,12 +434,17 @@ def _hardlink(source: Path, destination: Path) -> None:
 
 
 def _ms2_lookup(path) -> dict[str, str]:
+    """可选读取MS2结果，建立Compound_ID到MS2诊断的显示映射。"""
+
     if not path or not Path(path).exists():
         return {}
     rows = read_table(Path(path))
     return {
         str(row.get("Compound_ID", "")): str(
-            row.get("ms2_diagnostic_status") or row.get("compound_identity_status") or row.get("enantiomer_pair_status") or ""
+            row.get("ms2_diagnostic_status")
+            or row.get("compound_identity_status")
+            or row.get("enantiomer_pair_status")
+            or ""
         )
         for row in rows
         if row.get("Compound_ID")
@@ -403,6 +452,8 @@ def _ms2_lookup(path) -> dict[str, str]:
 
 
 def _write_manifest(path: Path, rows: list[dict]) -> None:
+    """写出MS1目标资产与分类视图manifest。"""
+
     if not rows:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -413,6 +464,8 @@ def _write_manifest(path: Path, rows: list[dict]) -> None:
 
 
 def _write_galleries(output_dir: Path, views: dict[str, list[dict[str, str]]]) -> None:
+    """为每个MS1审核视图生成静态HTML gallery。"""
+
     galleries = output_dir / "galleries"
     galleries.mkdir(parents=True, exist_ok=True)
     links = []
@@ -422,18 +475,26 @@ def _write_galleries(output_dir: Path, views: dict[str, list[dict[str, str]]]) -
         cards = "".join(_gallery_card(view_path, artifact) for artifact in artifacts)
         document = _gallery_document(view, len(artifacts), cards)
         (galleries / name).write_text(document, encoding="utf-8")
-        links.append(f'<li><a href="{html.escape(name)}">{html.escape(view)}</a> ({len(artifacts)})</li>')
+        links.append(
+            f'<li><a href="{html.escape(name)}">{html.escape(view)}</a> ({len(artifacts)})</li>'
+        )
     (galleries / "index.html").write_text(
         '<!doctype html><meta charset="utf-8"><title>MS1 EIC review galleries</title><style>body{font:16px Segoe UI,Arial;max-width:900px;margin:40px auto;color:#172033}li{margin:8px}</style><h1>MS1 EIC review galleries</h1><ul>'
-        + "".join(links) + "</ul>", encoding="utf-8"
+        + "".join(links)
+        + "</ul>",
+        encoding="utf-8",
     )
 
 
 def _gallery_document(title: str, count: int, cards: str) -> str:
-    return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{html.escape(title)}</title><style>body{{font:14px Segoe UI,Arial;background:#eef1f5;color:#172033;margin:24px}}h1{{margin-left:1%}}main{{display:grid;grid-template-columns:repeat(auto-fit,minmax(560px,1fr));gap:16px}}figure{{margin:0;background:#fff;border:1px solid #dfe4eb;border-radius:12px;overflow:hidden}}img{{display:block;width:100%;height:auto}}figcaption{{padding:8px 12px;color:#667085}}@media(max-width:650px){{main{{grid-template-columns:1fr}}}}</style></head><body><h1>{html.escape(title)} <small>n={count}</small></h1><main>{cards}</main></body></html>'''
+    """把MS1图像卡片包装成独立HTML gallery。"""
+
+    return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{html.escape(title)}</title><style>body{{font:14px Segoe UI,Arial;background:#eef1f5;color:#172033;margin:24px}}h1{{margin-left:1%}}main{{display:grid;grid-template-columns:repeat(auto-fit,minmax(560px,1fr));gap:16px}}figure{{margin:0;background:#fff;border:1px solid #dfe4eb;border-radius:12px;overflow:hidden}}img{{display:block;width:100%;height:auto}}figcaption{{padding:8px 12px;color:#667085}}@media(max-width:650px){{main{{grid-template-columns:1fr}}}}</style></head><body><h1>{html.escape(title)} <small>n={count}</small></h1><main>{cards}</main></body></html>"""
 
 
 def _gallery_card(view_path: str, artifacts: dict[str, str]) -> str:
+    """生成一个MS1图像缩略卡及SVG/PNG链接。"""
+
     preview = artifacts.get("png") or artifacts.get("svg")
     primary = artifacts.get("svg") or preview
     if not preview or not primary:
@@ -445,23 +506,31 @@ def _gallery_card(view_path: str, artifacts: dict[str, str]) -> str:
     return (
         f'<figure><a href="{html.escape(view_path + primary)}"><img loading="lazy" '
         f'src="{html.escape(view_path + preview)}"></a><figcaption>{html.escape(primary)} '
-        f'({links})</figcaption></figure>'
+        f"({links})</figcaption></figure>"
     )
 
 
 def _summary(manifest, views, peaklist, raw, baseline, experimental, candidate):
+    """汇总MS1资产、分类视图、输入路径和三组配置。"""
+
     return {
-        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "created_utc": datetime.now(UTC).isoformat(),
         "source_peaklist": str(peaklist.resolve()),
         "source_raw": str(raw.resolve()),
         "images": len(manifest),
         "reference_status_counts": dict(Counter(row["reference_status"] for row in manifest)),
         "baseline_status_counts": dict(Counter(row["baseline_status"] for row in manifest)),
-        "baseline_vs_reference_counts": dict(Counter(row["baseline_vs_reference"] for row in manifest)),
-        "experimental_vs_reference_counts": dict(Counter(row["experimental_vs_reference"] for row in manifest)),
+        "baseline_vs_reference_counts": dict(
+            Counter(row["baseline_vs_reference"] for row in manifest)
+        ),
+        "experimental_vs_reference_counts": dict(
+            Counter(row["experimental_vs_reference"] for row in manifest)
+        ),
         "parameter_stability_counts": dict(Counter(row["parameter_stability"] for row in manifest)),
         "stable_reference_agreement": {
-            "stable_rows": sum(row["parameter_stability"] == "stable_class_and_rt" for row in manifest),
+            "stable_rows": sum(
+                row["parameter_stability"] == "stable_class_and_rt" for row in manifest
+            ),
             "stable_exact_reference_rows": sum(
                 row["parameter_stability"] == "stable_class_and_rt"
                 and row["baseline_vs_reference"] == "exact_agreement"
@@ -480,9 +549,11 @@ def _summary(manifest, views, peaklist, raw, baseline, experimental, candidate):
 
 
 def _readme(summary: dict) -> str:
+    """生成MS1审核导出目录内的使用说明。"""
+
     return f"""# MS1 EIC review export
 
-Generated {summary['images']} canonical chromatogram images in SVG and PNG
+Generated {summary["images"]} canonical chromatogram images in SVG and PNG
 formats.  `assets/` is the single canonical set.  `views/` contains NTFS
 hard-linked folder views by supplied RT
 reference, automatic status, parameter stability, and focused review reason.
@@ -502,6 +573,8 @@ layer, not a new truth label.
 
 
 def _normalise_image_formats(image_formats) -> tuple[str, ...]:
+    """去重并验证MS1导出的图像格式。"""
+
     formats = tuple(dict.fromkeys(str(image_format).lower() for image_format in image_formats))
     invalid = set(formats).difference({"svg", "png"})
     if invalid or not formats:
@@ -519,11 +592,17 @@ def _write_png(path: Path, image) -> None:
 
 
 def _peak_rt(result, index: int) -> str:
+    """返回指定预测峰的分钟RT文本；不存在时返回空。"""
+
     return f"{result.peaks[index].rt_sec / 60:.6g}" if len(result.peaks) > index else ""
 
 
 def _safe_name(value: str) -> str:
-    cleaned = "".join(character if character.isalnum() or character in "-_" else "_" for character in value)
+    """把任意目标文本转换为安全文件名组件。"""
+
+    cleaned = "".join(
+        character if character.isalnum() or character in "-_" else "_" for character in value
+    )
     return cleaned[:80] or "unknown"
 
 
@@ -532,6 +611,8 @@ def _config_hash(
     experimental: PeakPickingConfig,
     candidate: PeakPickingConfig,
 ) -> str:
+    """由三组MS1配置生成短指纹，防止不同参数产物混淆。"""
+
     payload = json.dumps(
         {
             "baseline": baseline.__dict__,
@@ -545,11 +626,15 @@ def _config_hash(
 
 
 def _target_uid(dataset_id: str, run_id: str, compound_id: str, mz: float) -> str:
+    """由数据集、运行、化合物和m/z生成稳定目标ID。"""
+
     payload = f"{dataset_id}|{run_id}|{compound_id}|{mz:.8f}"
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def _candidate_pair_covers_reference(row: dict, candidates, tolerance_min: float) -> bool:
+    """检查高召回候选中是否存在覆盖两个人工RT的一对峰。"""
+
     first, second = number(row.get("Peak1")), number(row.get("Peak2"))
     if first is None or second is None:
         return False
@@ -570,19 +655,23 @@ def _parameter_stability(
     *,
     rt_tolerance_min: float = 0.05,
 ) -> str:
+    """比较baseline/experimental的类别与RT，返回稳定或变化类型。"""
+
     if baseline_status != experimental_status:
         return "unstable_class_across_smoothing"
     if baseline_status == "ambiguous":
         return "ambiguous_in_both_models"
     if len(baseline_rts) != len(experimental_rts) or any(
         abs(left - right) > rt_tolerance_min
-        for left, right in zip(baseline_rts, experimental_rts)
+        for left, right in zip(baseline_rts, experimental_rts, strict=True)
     ):
         return "unstable_rt_across_smoothing"
     return "stable_class_and_rt"
 
 
 def _config_label(name: str, config: PeakPickingConfig, scan_interval_sec: float) -> str:
+    """把MS1配置和估算时间尺度格式化为图中标签。"""
+
     smooth_width = config.sg_window * scan_interval_sec
     distance = (
         f"{config.min_distance_sec:g}s"
@@ -597,10 +686,12 @@ def _config_label(name: str, config: PeakPickingConfig, scan_interval_sec: float
 
 
 def _result_metrics(result) -> str:
+    """把峰数、RT、resolution、valley和复核原因压缩为图中文字。"""
+
     peaks = []
     for index, peak in enumerate(result.peaks[:2], start=1):
         peaks.append(
-            f"P{index} RT={peak.rt_sec/60:.3f}, I={_compact(peak.intensity)}, "
+            f"P{index} RT={peak.rt_sec / 60:.3f}, I={_compact(peak.intensity)}, "
             f"FWHM={_compact(peak.width_sec)}s, area={_compact(peak.area_fwhm)}, "
             f"SNR={_compact(peak.snr)}, prom={_compact(peak.prominence)}"
         )
@@ -612,6 +703,8 @@ def _result_metrics(result) -> str:
 
 
 def _result_fields(prefix: str, result) -> dict:
+    """把一次寻峰结果展开为带指定前缀的manifest字段。"""
+
     fields = {
         f"{prefix}_peak_resolution_fwhm": _value(result.resolution),
         f"{prefix}_peak_separation_sec": _value(result.peak_separation_sec),
@@ -627,8 +720,12 @@ def _result_fields(prefix: str, result) -> dict:
                 f"{prefix}_peak{number}_fwhm_sec": "" if peak is None else _value(peak.width_sec),
                 f"{prefix}_peak{number}_area_fwhm": "" if peak is None else _value(peak.area_fwhm),
                 f"{prefix}_peak{number}_snr": "" if peak is None else _value(peak.snr),
-                f"{prefix}_peak{number}_prominence": "" if peak is None else _value(peak.prominence),
-                f"{prefix}_peak{number}_prominence_ratio": "" if peak is None else _value(peak.prominence_ratio),
+                f"{prefix}_peak{number}_prominence": ""
+                if peak is None
+                else _value(peak.prominence),
+                f"{prefix}_peak{number}_prominence_ratio": ""
+                if peak is None
+                else _value(peak.prominence_ratio),
             }
         )
     if len(result.peaks) >= 2 and max(result.peaks[0].intensity, result.peaks[1].intensity) > 0:
@@ -642,6 +739,8 @@ def _result_fields(prefix: str, result) -> dict:
 
 
 def _write_annotation_template(path: Path, manifest: list[dict]) -> None:
+    """创建包含目标标识和空人工MS1标签字段的模板。"""
+
     if path.exists():
         return
     rows = [
@@ -664,10 +763,14 @@ def _write_annotation_template(path: Path, manifest: list[dict]) -> None:
 
 
 def _value(value) -> str:
+    """将可选值转换为CSV友好文本。"""
+
     return "" if value is None else f"{float(value):.8g}"
 
 
 def _compact(value) -> str:
+    """将大数压缩为k/M格式供图像和摘要显示。"""
+
     if value is None:
         return "—"
     try:
@@ -675,7 +778,7 @@ def _compact(value) -> str:
     except (TypeError, ValueError):
         return str(value)
     if abs(number) >= 1_000_000:
-        return f"{number/1_000_000:.2f}M"
+        return f"{number / 1_000_000:.2f}M"
     if abs(number) >= 1_000:
-        return f"{number/1_000:.1f}k"
+        return f"{number / 1_000:.1f}k"
     return f"{number:.3g}"

@@ -7,7 +7,10 @@ from pathlib import Path
 
 
 def workspace_paths(base: Path) -> dict[str, Path]:
-    """Return the legacy project's data, peak-list, and result paths."""
+    """返回旧目录约定中的``data``、``peaklist``和``results``路径。
+
+    新的显式CLI并不依赖该布局；此函数主要服务旧版``GetFrag``接口。
+    """
 
     return {
         "data": base / "data",
@@ -17,6 +20,8 @@ def workspace_paths(base: Path) -> dict[str, Path]:
 
 
 def peak_files(path: Path) -> list[Path]:
+    """列出目录中可作为peaklist的CSV/XLSX文件，按路径稳定排序。"""
+
     if not path.exists():
         return []
     return sorted(
@@ -27,6 +32,8 @@ def peak_files(path: Path) -> list[Path]:
 
 
 def raw_files(path: Path) -> list[Path]:
+    """列出目录中的mzML/mzXML原始文件，按路径稳定排序。"""
+
     if not path.exists():
         return []
     return sorted(
@@ -37,16 +44,18 @@ def raw_files(path: Path) -> list[Path]:
 
 
 def matching_raw_file(peakfile: Path, msfiles: list[Path]) -> Path | None:
-    """Match one peak list to exactly one raw file by stem or well token."""
+    """按文件stem或well token为一个peaklist匹配唯一原始文件。
+
+    无匹配返回``None``；多个候选直接报错，避免把一个pool悄悄路由到错误
+    raw文件。正式多文件运行更推荐使用显式manifest。
+    """
 
     stem = peakfile.stem
     matches = [path for path in msfiles if stem in path.stem]
     if not matches:
         tokens = re.findall(r"[A-Za-z]\d{2,}", stem)
         matches = [
-            path
-            for path in msfiles
-            if any(token.lower() in path.stem.lower() for token in tokens)
+            path for path in msfiles if any(token.lower() in path.stem.lower() for token in tokens)
         ]
     if not matches:
         return None

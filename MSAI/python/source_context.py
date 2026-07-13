@@ -4,10 +4,10 @@ from __future__ import annotations
 
 
 def source_machine_label_interpretation(label) -> str:
-    """Interpret the confirmed IG colour vocabulary without claiming truth.
+    """解释已确认的IG颜色词汇，但不把来源标签当作分析真值。
 
-    Other source machines (IA, IB, ...) must retain their raw labels until the
-    laboratory confirms that they use the same vocabulary.
+    GREEN/YELLOW/RED/CHECK是IG列中的预期/复核标签，不是机器名称。IA、IB等
+    其他实验必须保留原始标签，直到实验室确认它们使用完全相同的词汇体系。
     """
 
     label = str(label or "").strip().upper()
@@ -20,6 +20,8 @@ def source_machine_label_interpretation(label) -> str:
 
 
 def folder_component(value, *, default: str = "unknown", limit: int = 80) -> str:
+    """把任意实验、pool或化合物文本清理为安全且长度受限的目录组件。"""
+
     cleaned = "".join(
         character if character.isalnum() or character in "-_" else "_"
         for character in str(value or "")

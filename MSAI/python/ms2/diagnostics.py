@@ -15,13 +15,19 @@ from .similarity import ChiralPairThresholds, SpectrumSimilarity
 
 @dataclass(frozen=True)
 class DiagnosticResult:
+    """独立诊断结果：机器可读状态、问题代码和人工审核优先级。"""
+
     status: str
     issue_codes: tuple[str, ...]
     review_priority: str
 
 
 def classify_ms1_reference(peak_a_rt, peak_b_rt) -> DiagnosticResult:
-    """Describe only the supplied MS1/retention-time context."""
+    """只描述输入表是否提供了零个、一个或两个RT坐标。
+
+    它不重新检查EIC形状，也不把``supplied_double_peak``当作同一化合物或
+    对映体证据。
+    """
 
     has_a = _has_value(peak_a_rt)
     has_b = _has_value(peak_b_rt)
@@ -40,9 +46,14 @@ def classify_ms2_diagnostic(
     thresholds: ChiralPairThresholds | None = None,
     peak_a_quality_flags: str = "",
     peak_b_quality_flags: str = "",
-    dia_window_match_count=None,
+    dia_window_match_count: str | int | float | None = None,
 ) -> DiagnosticResult:
-    """Map MS2 evidence to an MS2-only status and explicit review issues."""
+    """把提取/相似度证据映射为MS2专属状态和显式问题代码。
+
+    判定优先区分未尝试、无DIA覆盖、无效m/z、RT相同和空谱，再根据相似度
+    结果区分支持、冲突或证据不足。附加问题代码用于提示窗口重叠、fragment
+    数失衡、边界样本等，不会把MS1来源标签混入MS2诊断。
+    """
 
     thresholds = thresholds or ChiralPairThresholds()
     issues: list[str] = []
@@ -112,11 +123,12 @@ def classify_ms2_diagnostic(
         ):
             issues.append("NEAR_DECISION_BOUNDARY")
 
-    try:
-        if int(float(dia_window_match_count)) > 1:
-            issues.append("OVERLAPPING_DIA_WINDOWS")
-    except (TypeError, ValueError):
-        pass
+    if dia_window_match_count is not None:
+        try:
+            if int(float(dia_window_match_count)) > 1:
+                issues.append("OVERLAPPING_DIA_WINDOWS")
+        except (OverflowError, ValueError):
+            pass
 
     issues = list(dict.fromkeys(issues))
     priority = _review_priority(status, issues)
@@ -124,10 +136,14 @@ def classify_ms2_diagnostic(
 
 
 def legacy_chiral_status(ms2_status: str) -> tuple[str, str, str]:
-    """Return compatibility identity/doublet labels from an MS2-only status."""
+    """把新MS2状态转换成旧版identity/doublet字段，仅供兼容输出。"""
 
     if ms2_status == "supported_same_compound":
-        return "ms2_supported_same_compound", "candidate_chiral_doublet", "candidate_enantiomer_pair"
+        return (
+            "ms2_supported_same_compound",
+            "candidate_chiral_doublet",
+            "candidate_enantiomer_pair",
+        )
     if ms2_status == "conflicting_spectra":
         return "ms2_conflict", "not_supported", "ms2_not_similar"
     if ms2_status == "insufficient_evidence":
@@ -136,6 +152,8 @@ def legacy_chiral_status(ms2_status: str) -> tuple[str, str, str]:
 
 
 def _review_priority(status: str, issues: list[str]) -> str:
+    """依据冲突、干扰/边界、证据不足和支持审计分配P1至P5。"""
+
     if status == "conflicting_spectra":
         return "P1_conflict"
     if any(
@@ -156,4 +174,6 @@ def _review_priority(status: str, issues: list[str]) -> str:
 
 
 def _has_value(value) -> bool:
+    """判断表格字段是否不是``None``且包含非空白文本。"""
+
     return value is not None and str(value).strip() != ""

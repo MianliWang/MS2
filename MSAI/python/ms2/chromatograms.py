@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_left, bisect_right
+from itertools import pairwise
 
 from .indexing import _ensure_sorted_peaks
 from .models import DiaData, Eic, Ms2Index, Spectrum
 
 
 def summarize_xic_peak(eic: Eic) -> dict:
-    """Summarize an EIC with its apex and trapezoidal area."""
+    """汇总一条EIC的apex RT、apex强度和梯形积分面积。
+
+    面积直接对实际RT间隔积分，不假设scan间隔完全相等。有效点不足两个时
+    面积为空并标记``insufficient_points``，避免把单点强度误作峰面积。
+    """
 
     if not eic.intensity:
         return _empty_xic_summary("empty_xic")
@@ -22,7 +27,7 @@ def summarize_xic_peak(eic: Eic) -> dict:
     )
     valid = [
         index
-        for index, (rt, intensity) in enumerate(zip(eic.rt, eic.intensity))
+        for index, (rt, intensity) in enumerate(zip(eic.rt, eic.intensity, strict=True))
         if math.isfinite(rt) and math.isfinite(intensity)
     ]
     if not valid:
@@ -33,8 +38,7 @@ def summarize_xic_peak(eic: Eic) -> dict:
     else:
         pairs = sorted((eic.rt[index], eic.intensity[index]) for index in valid)
         area = sum(
-            (right[0] - left[0]) * (left[1] + right[1]) / 2
-            for left, right in zip(pairs, pairs[1:])
+            (right[0] - left[0]) * (left[1] + right[1]) / 2 for left, right in pairwise(pairs)
         )
         flags = "ok"
     return {
@@ -46,11 +50,15 @@ def summarize_xic_peak(eic: Eic) -> dict:
 
 
 def format_fragment_string(fragment_mz, intensity) -> str:
-    """Serialize fragment m/z-intensity pairs in the legacy CSV-cell form."""
+    """将fragment m/z和强度序列化为项目兼容的单元格文本。
+
+    格式为``mz,intensity;mz,intensity``，使用足够有效数字以避免可视化或
+    再比较时因过早四舍五入改变匹配结果。
+    """
 
     pairs = [
         (mz, value)
-        for mz, value in zip(fragment_mz, intensity)
+        for mz, value in zip(fragment_mz, intensity, strict=True)
         if mz is not None and value is not None
     ]
     if not pairs:
@@ -59,7 +67,7 @@ def format_fragment_string(fragment_mz, intensity) -> str:
 
 
 def _ms2copy(spectra: list[Spectrum] | Ms2Index, diawin: float) -> DiaData:
-    """Select and RT-sort scans from one acquired DIA window."""
+    """取得一个DIA窗口的扫描并按RT排序；已有索引时为常数时间查找。"""
 
     if isinstance(spectra, Ms2Index):
         return spectra.get(diawin)
@@ -81,7 +89,11 @@ def _raw_eic(
     rtmin: float,
     rtmax: float,
 ) -> Eic:
-    """Extract a summed-intensity EIC within inclusive m/z and RT bounds."""
+    """在闭合m/z和RT范围内提取求和强度EIC。
+
+    先对RT索引、再对每张谱的m/z数组做二分查找，从而避免逐峰全扫描。
+    返回的``scan``是DIA窗口内部下标，供后续定位真实apex scan使用。
+    """
 
     rt: list[float] = []
     scan: list[int] = []
@@ -99,6 +111,8 @@ def _raw_eic(
 
 
 def _empty_xic_summary(flag: str) -> dict:
+    """生成字段完整的空EIC摘要，并保留无法计算的原因。"""
+
     return {
         "apex_rt": None,
         "apex_intensity": None,
@@ -108,7 +122,7 @@ def _empty_xic_summary(flag: str) -> dict:
 
 
 def empty_window_result(flag: str, ms2_count=None) -> dict:
-    """Return the stable schema for an MS2 window that cannot be evaluated."""
+    """为不可评价的RT/DIA窗口返回字段稳定的空结果。"""
 
     return {
         "MS2": "",
@@ -135,7 +149,7 @@ def merge_window_result(
     fragment_count: int | None = None,
     fragment_peaks: list[tuple[float, float]] | None = None,
 ) -> dict:
-    """Combine EIC summary, fragments, counts, and de-duplicated flags."""
+    """合并EIC摘要、碎片谱、扫描计数和去重后的质量标记。"""
 
     clean_flags: list[str] = []
     for flag in flags:
@@ -158,6 +172,8 @@ def merge_window_result(
 
 
 def _split_flags(flags: str) -> list[str]:
+    """把分号分隔质量标记还原为列表；``ok``等价于没有问题。"""
+
     if not flags or flags == "ok":
         return []
     return flags.split(";")

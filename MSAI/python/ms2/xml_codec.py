@@ -10,13 +10,13 @@ import zlib
 
 
 def _local_name(tag: str) -> str:
-    """Return an XML tag name without its optional namespace."""
+    """移除可选XML namespace，返回本地标签名。"""
 
     return tag.rsplit("}", 1)[-1]
 
 
 def _parse_mzxml_duration(value: str) -> float | None:
-    """Parse an mzXML ISO-8601 retention-time duration into seconds."""
+    """把mzXML的ISO-8601 duration解析为秒；格式无效时返回``None``。"""
 
     match = re.fullmatch(
         r"PT(?:(?P<hours>\d+(?:\.\d+)?)H)?(?:(?P<minutes>\d+(?:\.\d+)?)M)?(?:(?P<seconds>\d+(?:\.\d+)?)S)?",
@@ -29,7 +29,11 @@ def _parse_mzxml_duration(value: str) -> float | None:
 
 
 def _decode_mzxml_peaks(element: ET.Element) -> tuple[list[float], list[float]]:
-    """Decode one mzXML ``<peaks>`` element into m/z and intensity arrays."""
+    """把一个mzXML ``<peaks>``节点解码为m/z和强度数组。
+
+    支持32/64位浮点、大小端及可选zlib压缩；检测奇数长度、非法base64和
+    未支持压缩方式并显式报错，避免静默产生错位谱图。
+    """
 
     encoded = "".join((element.text or "").split())
     if not encoded:

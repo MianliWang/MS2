@@ -3,10 +3,10 @@
 from .classification import (
     background_diagnostics,
     manual_chromatographic_status,
-    reference_chromatographic_status,
-    source_machine_label_interpretation,
     prediction_diagnostic,
+    reference_chromatographic_status,
     review_views,
+    source_machine_label_interpretation,
 )
 from .exporter import export_ms1_review
 
@@ -14,8 +14,8 @@ __all__ = [
     "background_diagnostics",
     "export_ms1_review",
     "manual_chromatographic_status",
-    "reference_chromatographic_status",
-    "source_machine_label_interpretation",
     "prediction_diagnostic",
+    "reference_chromatographic_status",
     "review_views",
+    "source_machine_label_interpretation",
 ]

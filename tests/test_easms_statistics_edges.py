@@ -24,8 +24,12 @@ class EffectSizeSemanticsTests(unittest.TestCase):
 
     def test_fraction_and_fraction_shift(self):
         self.assertEqual(enantiomer_fraction(3, 1), 0.75)
-        self.assertAlmostEqual(enantiomer_fraction_shift(1, 1, 3, 1), 0.25)
-        self.assertAlmostEqual(enantiomer_fraction_shift(3, 1, 1, 1), -0.25)
+        positive_shift = enantiomer_fraction_shift(1, 1, 3, 1)
+        negative_shift = enantiomer_fraction_shift(3, 1, 1, 1)
+        assert positive_shift is not None
+        assert negative_shift is not None
+        self.assertAlmostEqual(positive_shift, 0.25)
+        self.assertAlmostEqual(negative_shift, -0.25)
 
     def test_zero_denominators_are_undefined_not_infinite(self):
         self.assertIsNone(target_control_enrichment_fold(1, [0, 0]))
@@ -39,15 +43,14 @@ class EffectSizeSemanticsTests(unittest.TestCase):
         for invalid in invalid_values:
             with self.subTest(invalid=invalid):
                 with self.assertRaises(ValueError):
-                    target_control_enrichment_fold(invalid, [1])
+                    target_control_enrichment_fold(invalid, [1])  # pyright: ignore[reportArgumentType]
                 with self.assertRaises(ValueError):
                     target_control_enrichment_fold(1, [invalid])
                 with self.assertRaises(ValueError):
-                    enantiomer_fraction(invalid, 1)
+                    enantiomer_fraction(invalid, 1)  # pyright: ignore[reportArgumentType]
         for invalid_pseudocount in (-1, math.nan, math.inf):
-            with self.subTest(pseudocount=invalid_pseudocount):
-                with self.assertRaises(ValueError):
-                    input_eluate_recovery_fold(1, 2, invalid_pseudocount)
+            with self.subTest(pseudocount=invalid_pseudocount), self.assertRaises(ValueError):
+                input_eluate_recovery_fold(1, 2, invalid_pseudocount)
 
     def test_log_ratio_requires_positive_pseudocount_and_valid_areas(self):
         self.assertAlmostEqual(enantiomer_log2_ratio_shift(1, 1, 3, 1, 1), 1.0)
@@ -77,9 +80,8 @@ class BenjaminiHochbergEdgeTests(unittest.TestCase):
 
     def test_invalid_p_values_are_rejected(self):
         for invalid in (-0.01, 1.01, math.nan, math.inf, -math.inf, "bad"):
-            with self.subTest(invalid=invalid):
-                with self.assertRaises(ValueError):
-                    benjamini_hochberg([0.1, invalid])
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                benjamini_hochberg([0.1, invalid])
 
 
 if __name__ == "__main__":

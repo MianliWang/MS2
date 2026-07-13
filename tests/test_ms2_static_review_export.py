@@ -6,12 +6,12 @@ import unittest
 from pathlib import Path
 
 from MSAI.python.chiral_similarity import align_fragment_spectra
-from MSAI.python.ms2_review.classification import review_views, spectrum_availability
 from MSAI.python.ms2_review.acquisition import (
     load_method_profile,
     raw_acquisition_context,
     reconcile_acquisition,
 )
+from MSAI.python.ms2_review.classification import review_views, spectrum_availability
 from MSAI.python.ms2_review.exporter import export_ms2_review
 from MSAI.python.ms2_review.model import prepare_mirror_spectrum
 from MSAI.python.ms2_review.png import render_ms2_review_png
@@ -80,8 +80,17 @@ class SpectrumPreparationTests(unittest.TestCase):
 
     def test_views_keep_ms2_status_and_source_independent(self):
         row = _supported_row()
-        row.update({"ms2_diagnostic_status": "conflicting_spectra", "ms2_review_priority": "P1_conflict", "ms2_issue_codes": "LOW_COSINE_SIMILARITY", "ms1_reference_status": "supplied_double_peak"})
-        views = review_views(row, source_machine_id="IG", source_machine_label="GREEN", source_pool_id="POOL-A01")
+        row.update(
+            {
+                "ms2_diagnostic_status": "conflicting_spectra",
+                "ms2_review_priority": "P1_conflict",
+                "ms2_issue_codes": "LOW_COSINE_SIMILARITY",
+                "ms1_reference_status": "supplied_double_peak",
+            }
+        )
+        views = review_views(
+            row, source_machine_id="IG", source_machine_label="GREEN", source_pool_id="POOL-A01"
+        )
         self.assertIn("diagnostic_status/conflicting_spectra", views)
         self.assertIn("source_machine/IG/GREEN", views)
         self.assertIn("cross_stage_followup/ms1_supplied_double_ms2_conflict", views)
@@ -120,7 +129,13 @@ class StaticRenderTests(unittest.TestCase):
 
     def test_svg_escapes_title_and_contains_acquisition_strip(self):
         row = _supported_row()
-        row.update({"ms2_diagnostic_status": "supported_same_compound", "ms2_review_priority": "P4_supported_audit", "ms2_issue_codes": ""})
+        row.update(
+            {
+                "ms2_diagnostic_status": "supported_same_compound",
+                "ms2_review_priority": "P4_supported_audit",
+                "ms2_issue_codes": "",
+            }
+        )
         mirror = prepare_mirror_spectrum(row)
         svg = render_ms2_review_svg(row=row, mirror=mirror, metadata=self._metadata())
         self.assertIn("example&lt;&amp;&gt;", svg)
@@ -131,7 +146,15 @@ class StaticRenderTests(unittest.TestCase):
 
     def test_png_is_valid_and_empty_spectrum_is_honest(self):
         row = _supported_row()
-        row.update({"peak_a_MS2": "", "peak_b_MS2": "", "ms2_diagnostic_status": "not_evaluable", "ms2_review_priority": "P5_not_evaluable", "ms2_issue_codes": "NO_ACQUIRED_DIA_WINDOW"})
+        row.update(
+            {
+                "peak_a_MS2": "",
+                "peak_b_MS2": "",
+                "ms2_diagnostic_status": "not_evaluable",
+                "ms2_review_priority": "P5_not_evaluable",
+                "ms2_issue_codes": "NO_ACQUIRED_DIA_WINDOW",
+            }
+        )
         mirror = prepare_mirror_spectrum(row)
         image = render_ms2_review_png(row=row, mirror=mirror, metadata=self._metadata(), scale=0.5)
         self.assertEqual(image.size, (620, 515))
@@ -148,27 +171,36 @@ class StaticExportTests(unittest.TestCase):
             source = root / "result.csv"
             first = _supported_row()
             second = dict(first)
-            second.update({
-                "Compound_ID": "no-window",
-                "MZ": "300",
-                "peak_a_MS2": "",
-                "peak_b_MS2": "",
-                "peak_a_quality_flags": "no_matching_DIA_window",
-                "peak_b_quality_flags": "no_matching_DIA_window",
-                "ms2_cosine": "",
-                "ms2_entropy_similarity": "",
-                "ms2_matched_peaks": "",
-                "peak_a_explained_intensity": "",
-                "peak_b_explained_intensity": "",
-                "enantiomer_pair_status": "not_evaluable",
-                "enantiomer_pair_reason": "precursor_outside_acquired_DIA_windows",
-            })
+            second.update(
+                {
+                    "Compound_ID": "no-window",
+                    "MZ": "300",
+                    "peak_a_MS2": "",
+                    "peak_b_MS2": "",
+                    "peak_a_quality_flags": "no_matching_DIA_window",
+                    "peak_b_quality_flags": "no_matching_DIA_window",
+                    "ms2_cosine": "",
+                    "ms2_entropy_similarity": "",
+                    "ms2_matched_peaks": "",
+                    "peak_a_explained_intensity": "",
+                    "peak_b_explained_intensity": "",
+                    "enantiomer_pair_status": "not_evaluable",
+                    "enantiomer_pair_reason": "precursor_outside_acquired_DIA_windows",
+                }
+            )
             with source.open("w", encoding="utf-8", newline="") as handle:
                 writer = csv.DictWriter(handle, fieldnames=first.keys())
                 writer.writeheader()
                 writer.writerows((first, second))
             sidecar = {
-                "parameters": {"fragment_mz_tol": 0.01, "fragment_mz_tol_unit": "Da", "min_relative_intensity": 0.01, "min_cosine": 0.7, "min_matched_peaks": 6, "min_explained_intensity": 0.5},
+                "parameters": {
+                    "fragment_mz_tol": 0.01,
+                    "fragment_mz_tol_unit": "Da",
+                    "min_relative_intensity": 0.01,
+                    "min_cosine": 0.7,
+                    "min_matched_peaks": 6,
+                    "min_explained_intensity": 0.5,
+                },
                 "dia_windows": [{"lower": 395.5, "upper": 410.5, "center": 403, "scan_count": 10}],
                 "inputs": {},
             }
@@ -184,9 +216,21 @@ class StaticExportTests(unittest.TestCase):
             self.assertEqual(summary["images"], 2)
             self.assertEqual(len(list((output / "assets").rglob("*.svg"))), 2)
             self.assertEqual(len(list((output / "assets").rglob("*.png"))), 2)
-            no_window_views = list((output / "views" / "acquisition_coverage" / "no_dia_window" / "below_acquired_range").glob("*.svg"))
+            no_window_views = list(
+                (
+                    output
+                    / "views"
+                    / "acquisition_coverage"
+                    / "no_dia_window"
+                    / "below_acquired_range"
+                ).glob("*.svg")
+            )
             self.assertEqual(len(no_window_views), 1)
-            manifest = list(csv.DictReader((output / "metadata" / "target_manifest.csv").open(encoding="utf-8-sig")))
+            manifest = list(
+                csv.DictReader(
+                    (output / "metadata" / "target_manifest.csv").open(encoding="utf-8-sig")
+                )
+            )
             asset = output / manifest[1]["svg_asset_path"]
             self.assertTrue(os.path.samefile(asset, no_window_views[0]))
             run_manifest = json.loads(
@@ -202,7 +246,13 @@ class StaticExportTests(unittest.TestCase):
             )
             annotation = output / "annotations" / "_template" / "review_labels.csv"
             annotation.write_text("preserve-me", encoding="utf-8")
-            export_ms2_review(source, output, standard_path="MSAI/standards/ms2_diagnostic_standard_v1.json", image_formats=("svg",), png_scale=0.25)
+            export_ms2_review(
+                source,
+                output,
+                standard_path="MSAI/standards/ms2_diagnostic_standard_v1.json",
+                image_formats=("svg",),
+                png_scale=0.25,
+            )
             self.assertEqual(annotation.read_text(encoding="utf-8"), "preserve-me")
 
 
@@ -216,7 +266,7 @@ class AcquisitionProvenanceTests(unittest.TestCase):
                 'windowWideness="15.0">403</precursorMz></scan>'
                 '<scan msLevel="2"><precursorMz activationMethod="HCD" '
                 'collisionEnergy="35.0" windowWideness="15.0">417</precursorMz>'
-                '</scan></mzXML>',
+                "</scan></mzXML>",
                 encoding="utf-8",
             )
             observed = raw_acquisition_context(raw)
@@ -251,9 +301,7 @@ class AcquisitionProvenanceTests(unittest.TestCase):
                 "REFERENCE_THREE_DIA_FILES_CURRENT_INPUT_ONE",
                 reconciliation["issue_codes"],
             )
-            self.assertIn(
-                "CHROMATOGRAPHIC_CORRELATION_0_9", reconciliation["matches"]
-            )
+            self.assertIn("CHROMATOGRAPHIC_CORRELATION_0_9", reconciliation["matches"])
 
 
 if __name__ == "__main__":

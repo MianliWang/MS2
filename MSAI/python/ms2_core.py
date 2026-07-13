@@ -10,7 +10,7 @@ from __future__ import annotations
 try:
     from . import ms2 as _impl
 except ImportError:  # direct ``python MSAI/python/script.py`` execution
-    import ms2 as _impl  # type: ignore
+    import ms2 as _impl  # type: ignore[import-not-found]
 
 Spectrum = _impl.Spectrum
 DiaData = _impl.DiaData
@@ -38,6 +38,9 @@ first_dia_window = _impl.first_dia_window
 csv_scalar = _impl.csv_scalar
 empty_window_result = _impl.empty_window_result
 merge_window_result = _impl.merge_window_result
+pearson_correlation = _impl.pearson_correlation
+raw_acquisition_context = _impl.raw_acquisition_context
+sample_sd = _impl.sample_sd
 
 # Private aliases are retained because MS1 and legacy tests historically used
 # the XML codecs and low-level helpers from this module.
@@ -61,4 +64,33 @@ _split_flags = _impl._split_flags
 _sd = _impl._sd
 _cor = _impl._cor
 
-__all__ = list(_impl.__all__)
+__all__ = [
+    "DiaData",
+    "Eic",
+    "Ms2Index",
+    "Spectrum",
+    "build_ms2_index",
+    "column",
+    "csv_scalar",
+    "empty_window_result",
+    "extract_window_result",
+    "first_dia_window",
+    "format_fragment_string",
+    "load_ms2_spectra",
+    "matching_dia_windows",
+    "matching_raw_file",
+    "merge_window_result",
+    "mz_bounds",
+    "normalize_rt_window",
+    "number",
+    "peak_files",
+    "pearson_correlation",
+    "preclist",
+    "raw_acquisition_context",
+    "raw_files",
+    "read_table",
+    "sample_sd",
+    "summarize_xic_peak",
+    "workspace_paths",
+    "write_table",
+]

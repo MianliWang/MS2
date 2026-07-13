@@ -5,13 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
     from .ms2 import read_table, write_table
 except ImportError:
-    from ms2 import read_table, write_table  # type: ignore
+    from ms2 import read_table, write_table  # type: ignore[import-not-found]
 
 
 KEY_COLUMNS = ("Compound_ID", "SGC ID for Component", "SGC ID for Pool", "MZ", "Peak1", "Peak2")
@@ -31,7 +31,11 @@ def compare_ms2_runs(
     *,
     status_changes_only: bool = False,
 ) -> dict:
-    """Write candidate rows annotated with their matching baseline evidence."""
+    """比较两次MS2运行并建立可复现的变化审核队列。
+
+    按化合物、pool、MZ和RT组合匹配行，区分状态变化、谱字符串变化及二者同时
+    变化，并保留baseline指标以便判断新参数究竟改善还是仅改变了结论。
+    """
 
     baseline_path = Path(baseline_path).resolve()
     candidate_path = Path(candidate_path).resolve()
@@ -55,9 +59,8 @@ def compare_ms2_runs(
             continue
         baseline = baseline_index[key].popleft()
         matched += 1
-        status_changed = (
-            baseline.get("ms2_diagnostic_status", "")
-            != candidate.get("ms2_diagnostic_status", "")
+        status_changed = baseline.get("ms2_diagnostic_status", "") != candidate.get(
+            "ms2_diagnostic_status", ""
         )
         peak_a_changed = baseline.get("peak_a_MS2", "") != candidate.get("peak_a_MS2", "")
         peak_b_changed = baseline.get("peak_b_MS2", "") != candidate.get("peak_b_MS2", "")
@@ -100,7 +103,7 @@ def compare_ms2_runs(
     write_table(output_path, queue)
     summary = {
         "schema_version": "msai-ms2-run-comparison-v1",
-        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "created_utc": datetime.now(UTC).isoformat(),
         "baseline": str(baseline_path),
         "candidate": str(candidate_path),
         "matched_rows": matched,
@@ -119,10 +122,14 @@ def compare_ms2_runs(
 
 
 def _row_key(row: dict) -> tuple[str, ...]:
+    """生成跨两次运行匹配同一目标的复合键。"""
+
     return tuple(str(row.get(column, "") or "").strip() for column in KEY_COLUMNS)
 
 
 def _review_tier(baseline: dict, candidate: dict, status_changed: bool) -> tuple[str, list[str]]:
+    """依据状态翻转、RT边界、fragment失衡和证据增益分配shadow审核层。"""
+
     flags: list[str] = []
     separation = _number(candidate.get("rt_separation_sec"))
     if separation is not None and separation < 30:
@@ -137,9 +144,13 @@ def _review_tier(baseline: dict, candidate: dict, status_changed: bool) -> tuple
         end = _number(candidate.get(prefix + "_rt_window_end"))
         if apex is not None and supplied_rt is not None and abs(apex - supplied_rt * 60) > 6:
             flags.append(label + "_APEX_OFFSET_GT6S")
-        if apex is not None and start is not None and end is not None:
-            if min(abs(apex - start), abs(apex - end)) < 2:
-                flags.append(label + "_APEX_NEAR_WINDOW_EDGE_LT2S")
+        if (
+            apex is not None
+            and start is not None
+            and end is not None
+            and min(abs(apex - start), abs(apex - end)) < 2
+        ):
+            flags.append(label + "_APEX_NEAR_WINDOW_EDGE_LT2S")
     count_a = _number(candidate.get("peak_a_fragment_count"))
     count_b = _number(candidate.get("peak_b_fragment_count"))
     if count_a is not None and count_b is not None:
@@ -177,6 +188,8 @@ def _review_tier(baseline: dict, candidate: dict, status_changed: bool) -> tuple
 
 
 def _number(value) -> float | None:
+    """宽松转换比较指标；无法转换时返回``None``。"""
+
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -184,6 +197,8 @@ def _number(value) -> float | None:
 
 
 def _delta(candidate, baseline) -> str:
+    """返回candidate减baseline；任一侧缺失时返回空文本。"""
+
     candidate_number, baseline_number = _number(candidate), _number(baseline)
     if candidate_number is None or baseline_number is None:
         return ""
@@ -191,6 +206,8 @@ def _delta(candidate, baseline) -> str:
 
 
 def main(argv=None):
+    """解析baseline/candidate路径并输出运行比较摘要。"""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True)
     parser.add_argument("--candidate", required=True)

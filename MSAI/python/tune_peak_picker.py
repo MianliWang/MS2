@@ -12,23 +12,27 @@ from pathlib import Path
 try:
     from .ms1_peak_picker import (
         PeakPickingConfig,
+        PeakPickResult,
         extract_target_eics_with_config,
         pick_chiral_peaks,
         resolution_passes_threshold,
     )
     from .ms2 import number, read_table
 except ImportError:
-    from ms1_peak_picker import (  # type: ignore
+    from ms1_peak_picker import (  # type: ignore[import-not-found]
         PeakPickingConfig,
+        PeakPickResult,
         extract_target_eics_with_config,
         pick_chiral_peaks,
         resolution_passes_threshold,
     )
-    from ms2 import number, read_table  # type: ignore
+    from ms2 import number, read_table  # type: ignore[import-not-found]
 
 
 @dataclass(frozen=True)
 class PeakCallMetrics:
+    """传统“是否双峰”二分类的混淆矩阵和派生指标。"""
+
     balanced_accuracy: float
     precision: float
     recall: float
@@ -41,7 +45,7 @@ class PeakCallMetrics:
 
 @dataclass(frozen=True)
 class RtAwarePeakCallMetrics:
-    """Three-class metrics that require predicted peaks to match reviewed RTs."""
+    """要求类别及预测RT都匹配人工标注的无峰/单峰/双峰指标。"""
 
     accuracy: float
     macro_recall: float
@@ -70,7 +74,10 @@ def tune_peak_picker(
     review_column="IG",
     rt_tolerance_min=0.1,
 ):
-    """Tune either the historical binary caller or an RT-aware adaptive caller."""
+    """选择传统二分类或RT-aware自适应MS1调参流程。
+
+    调优目标是复现人工Peak1/Peak2分类与位置，不是验证对映体身份。
+    """
 
     if adaptive:
         return _tune_peak_picker_adaptive(
@@ -102,7 +109,7 @@ def _tune_peak_picker_legacy(
     peak2_column="Peak2",
     id_column="Compound_ID",
 ):
-    """Tune on deterministic 80% groups and report untouched 20% performance."""
+    """在确定性80%校准集选择传统参数，并报告未参与选择的20%测试集。"""
 
     rows = read_table(Path(peaklist_path))
     required = {mz_column, peak1_column, peak2_column, id_column}
@@ -113,17 +120,21 @@ def _tune_peak_picker_legacy(
         for row in rows
         if number(row.get(mz_column)) is not None and number(row.get(peak1_column)) is not None
     ]
-    targets = [number(row[mz_column]) for row in labeled]
+    targets = [_required_number(row[mz_column], mz_column) for row in labeled]
     base_config = PeakPickingConfig(eic_ppm=3.0)
     rts, traces = extract_target_eics_with_config(raw_path, targets, base_config)
 
     calibration = [row for row in labeled if _split(row[id_column]) != "test"]
     test = [row for row in labeled if _split(row[id_column]) == "test"]
-    core_grid = list(itertools.product((5, 7, 9), (100_000.0, 200_000.0, 500_000.0), (15, 20, 25, 30)))
-    quality_grid = list(itertools.product((0.5, 0.7, 0.85, 1.0), (0.0, 0.5, 1.0), (0.05, 0.1, 0.2, 0.3)))
+    core_grid = list(
+        itertools.product((5, 7, 9), (100_000.0, 200_000.0, 500_000.0), (15, 20, 25, 30))
+    )
+    quality_grid = list(
+        itertools.product((0.5, 0.7, 0.85, 1.0), (0.0, 0.5, 1.0), (0.05, 0.1, 0.2, 0.3))
+    )
 
     best = None
-    cache: dict[tuple, dict[str, object]] = {}
+    cache: dict[tuple[int, float, int], dict[str, PeakPickResult]] = {}
     for sg_window, min_height, min_distance in core_grid:
         config = PeakPickingConfig(
             eic_ppm=3.0,
@@ -133,7 +144,11 @@ def _tune_peak_picker_legacy(
             min_distance_scans=min_distance,
         )
         picked = {
-            row[id_column]: pick_chiral_peaks(rts, traces[number(row[mz_column])], config)
+            row[id_column]: pick_chiral_peaks(
+                rts,
+                traces[_required_number(row[mz_column], mz_column)],
+                config,
+            )
             for row in labeled
         }
         cache[(sg_window, min_height, min_distance)] = picked
@@ -165,6 +180,7 @@ def _tune_peak_picker_legacy(
                 )
     assert best is not None
     _rank, config, max_valley_ratio, min_resolution, min_second_ratio, calibration_metrics = best
+    assert config.min_height is not None
     picked = cache[(config.sg_window, config.min_height, config.min_distance_scans)]
     test_metrics = _evaluate(
         test,
@@ -213,11 +229,10 @@ def _tune_peak_picker_adaptive(
     review_column,
     rt_tolerance_min,
 ):
-    """Tune relative/prominence-based detection without looking at holdout calls.
+    """在不查看holdout预测的前提下调优相对prominence检测。
 
-    The raw file is still parsed once for efficiency, but peak picking during the
-    grid search is restricted to calibration compounds.  Holdout traces are not
-    picked until a complete detection + quality configuration has been selected.
+    raw为了效率仍只解析一次，但参数网格期间只对校准化合物寻峰；完整检测和
+    质量配置冻结后才首次处理测试集，减少参数选择泄漏。
     """
 
     if rt_tolerance_min <= 0:
@@ -253,7 +268,7 @@ def _tune_peak_picker_adaptive(
     if not calibration or not test:
         raise ValueError("Deterministic split must contain both calibration and test rows.")
 
-    targets = [float(number(row[mz_column])) for row in reviewed]
+    targets = [_required_number(row[mz_column], mz_column) for row in reviewed]
     rts, traces = extract_target_eics_with_config(
         raw_path,
         targets,
@@ -264,7 +279,11 @@ def _tune_peak_picker_adaptive(
     for config in _adaptive_core_grid():
         # Intentionally do not pick test rows inside this loop.
         calibration_picked = {
-            row[id_column]: pick_chiral_peaks(rts, traces[float(number(row[mz_column]))], config)
+            row[id_column]: pick_chiral_peaks(
+                rts,
+                traces[_required_number(row[mz_column], mz_column)],
+                config,
+            )
             for row in calibration
         }
         for max_valley_ratio, min_resolution, min_second_ratio in _adaptive_quality_grid():
@@ -318,7 +337,7 @@ def _tune_peak_picker_adaptive(
     test_picked = {
         row[id_column]: pick_chiral_peaks(
             rts,
-            traces[float(number(row[mz_column]))],
+            traces[_required_number(row[mz_column], mz_column)],
             final_config,
         )
         for row in test
@@ -358,7 +377,7 @@ def _tune_peak_picker_adaptive(
 
 
 def _adaptive_core_grid():
-    """A bounded grid spanning review-only low peaks and validated height floors."""
+    """生成覆盖低峰审核模式和绝对高度门槛的有限检测参数网格。"""
 
     for sg_window, min_height, prominence, support, distance_sec, close_valley in itertools.product(
         (3, 5, 7),
@@ -383,7 +402,7 @@ def _adaptive_core_grid():
 
 
 def _adaptive_quality_grid():
-    """Include permissive valley/resolution choices for visibly shallow splits."""
+    """生成包含浅谷近峰所需宽松选项的双峰质量网格。"""
 
     return itertools.product(
         (0.7, 0.85, 0.95, 1.0),
@@ -393,11 +412,24 @@ def _adaptive_quality_grid():
 
 
 def _split(identifier: str) -> str:
+    """按ID的SHA-256稳定划分约80% calibration和20% test。"""
+
     digest = hashlib.sha256(str(identifier).encode("utf-8")).digest()
     return "test" if digest[0] % 5 == 0 else "calibration"
 
 
+def _required_number(value: object, field: str) -> float:
+    """返回已验证的有限数值；内部不变量失效时给出明确字段错误。"""
+
+    parsed = number(value)
+    if parsed is None:
+        raise ValueError(f"{field} must contain a finite numeric value.")
+    return parsed
+
+
 def _call(result, max_valley_ratio, min_resolution, min_second_ratio) -> bool:
+    """把谷峰比、分离度和第二峰比例门槛应用到一次寻峰结果。"""
+
     if result.chromatographic_status != "double_peak" or len(result.peaks) < 2:
         return False
     ratio = min(result.peaks[0].intensity, result.peaks[1].intensity) / max(
@@ -420,6 +452,8 @@ def _evaluate(
     min_resolution,
     min_second_ratio,
 ) -> PeakCallMetrics:
+    """计算传统双峰/非双峰二分类指标。"""
+
     tp = fp = tn = fn = 0
     for row in rows:
         truth = number(row.get(peak2_column)) is not None
@@ -440,7 +474,9 @@ def _evaluate(
     recall = _divide(tp, tp + fn)
     specificity = _divide(tn, tn + fp)
     precision = _divide(tp, tp + fp)
-    return PeakCallMetrics((recall + specificity) / 2, precision, recall, specificity, tp, fp, tn, fn)
+    return PeakCallMetrics(
+        (recall + specificity) / 2, precision, recall, specificity, tp, fp, tn, fn
+    )
 
 
 def _evaluate_rt_aware(
@@ -456,11 +492,10 @@ def _evaluate_rt_aware(
     rt_tolerance_min=0.1,
     close_double_max_sec=12.0,
 ) -> RtAwarePeakCallMetrics:
-    """Score no/single/double calls, counting wrong-RT calls as incorrect.
+    """评价无峰/单峰/双峰，并把RT定位错误计为错误。
 
-    A double is localized only when both predicted RTs can be paired to the two
-    reviewed RTs within the tolerance.  This prevents a plausible-looking pair
-    elsewhere in the chromatogram from being credited as a true positive.
+    双峰只有在两个预测RT都能与人工RT在容差内配对时才算正确，防止色谱图
+    其他位置看似合理的双峰被计作真阳性；同时单独报告12秒内近双峰召回率。
     """
 
     support = {"no_peak": 0, "single_peak": 0, "double_peak": 0}
@@ -511,9 +546,7 @@ def _evaluate_rt_aware(
         elif prediction == truth and truth != "no_peak":
             mislocalized += 1
 
-    recalls = {
-        label: _divide(localized[label], support[label]) for label in support
-    }
+    recalls = {label: _divide(localized[label], support[label]) for label in support}
     supported_recalls = [recalls[label] for label in support if support[label] > 0]
     macro_recall = _divide(sum(supported_recalls), len(supported_recalls))
     return RtAwarePeakCallMetrics(
@@ -534,6 +567,8 @@ def _evaluate_rt_aware(
 
 
 def _reviewed_peak_class(peak1, peak2) -> str:
+    """把人工Peak1/Peak2存在性映射为no/single/double。"""
+
     if peak1 is None and peak2 is None:
         return "no_peak"
     if peak1 is not None and peak2 is None:
@@ -549,6 +584,8 @@ def _predicted_peak_class(
     min_resolution,
     min_second_ratio,
 ) -> str:
+    """应用质量阈值后把自动结果映射为no/single/double/ambiguous。"""
+
     if _call(result, max_valley_ratio, min_resolution, min_second_ratio):
         return "double_peak"
     if result.chromatographic_status == "single_peak" and len(result.peaks) == 1:
@@ -559,6 +596,8 @@ def _predicted_peak_class(
 
 
 def _double_rts_match(predicted, reviewed, tolerance) -> bool:
+    """允许顺序交换，判断两个预测RT是否分别匹配两个人工RT。"""
+
     if len(predicted) != 2:
         return False
     direct = max(abs(predicted[0] - reviewed[0]), abs(predicted[1] - reviewed[1]))
@@ -576,6 +615,8 @@ def _rt_validation(
     min_resolution,
     min_second_ratio,
 ):
+    """汇总传统holdout双峰的最坏RT误差分布。"""
+
     errors: list[float] = []
     positives = 0
     for row in rows:
@@ -602,11 +643,17 @@ def _rt_validation(
 
 
 def _divide(numerator, denominator):
+    """安全计算评价比例；分母为零时返回0。"""
+
     return 0.0 if denominator == 0 else numerator / denominator
 
 
 def _main(argv=None):
-    parser = argparse.ArgumentParser(description="Calibrate MSAI automatic peak picking on reviewed labels.")
+    """运行传统或自适应MS1调参并将配置/holdout指标写入JSON。"""
+
+    parser = argparse.ArgumentParser(
+        description="Calibrate MSAI automatic peak picking on reviewed labels."
+    )
     parser.add_argument("--peaklist", required=True)
     parser.add_argument("--raw", required=True)
     parser.add_argument("--output", required=True)

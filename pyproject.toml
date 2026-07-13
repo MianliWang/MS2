@@ -1,0 +1,49 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = [
+  ".git",
+  ".pytest_cache",
+  ".scratch",
+  "MSAI/data",
+  "MSAI/results",
+]
+
+[tool.ruff.lint]
+# 在基础语法/未使用代码之外，检查导入、现代Python写法、常见bug、
+# 可读性、集合构造和明显性能问题。类型正确性由Pyright单独负责。
+select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "W",
+  "I",
+  "UP",
+  "B",
+  "SIM",
+  "C4",
+  "PIE",
+  "PERF",
+  "RUF",
+  "DTZ",
+  "PGH003",
+  "S603",
+  "S607",
+]
+ignore = [
+  "E501",   # 长URL、谱图SVG和中文docstring交给formatter，不强制硬换行。
+  "RUF001", # 科学文本和中文字符串中的Unicode字符是有意保留的。
+  "RUF002",
+  "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 这些私有名称是ms2_core兼容层所需的有意重导出，不能删除。
+"MSAI/python/ms2/__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true

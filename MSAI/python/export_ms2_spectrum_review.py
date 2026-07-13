@@ -9,15 +9,19 @@ from pathlib import Path
 try:
     from .ms2_review import export_ms2_review
 except ImportError:
-    from ms2_review import export_ms2_review  # type: ignore
+    from ms2_review import export_ms2_review  # type: ignore[import-not-found]
 
 
 def main(argv=None):
+    """解析独立MS2图像导出参数并打印生成摘要JSON。"""
+
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True)
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--standard", default=str(root / "standards" / "ms2_diagnostic_standard_v1.json"))
+    parser.add_argument(
+        "--standard", default=str(root / "standards" / "ms2_diagnostic_standard_v1.json")
+    )
     parser.add_argument("--sidecar", help="Defaults to <input>.metadata.json")
     parser.add_argument(
         "--method-profile",

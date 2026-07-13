@@ -5,10 +5,12 @@ from __future__ import annotations
 try:
     from ..source_context import folder_component
 except ImportError:
-    from source_context import folder_component  # type: ignore
+    from source_context import folder_component  # type: ignore[import-not-found]
 
 
 def spectrum_availability(row: dict) -> str:
+    """根据两侧MS2字符串是否非空判断谱图可用性。"""
+
     has_a = bool(str(row.get("peak_a_MS2", "") or "").strip())
     has_b = bool(str(row.get("peak_b_MS2", "") or "").strip())
     if has_a and has_b:
@@ -27,7 +29,12 @@ def review_views(
     source_machine_label: str = "",
     source_pool_id: str = "",
 ) -> list[str]:
-    """Return independent status, evidence, source, and review-queue views."""
+    """返回一个目标应出现的全部独立审核视图路径。
+
+    同一张规范图可以通过硬链接同时进入诊断状态、问题代码、机器/来源标签、
+    pool和人工审核队列等文件夹。这里的分类不改变核心诊断，只帮助人工按问题
+    类型抽查，例如空谱、DIA缺口、近边界、RT过近或fragment严重流失。
+    """
 
     status = folder_component(row.get("ms2_diagnostic_status") or "unknown")
     priority = folder_component(row.get("ms2_review_priority") or "unassigned")
@@ -93,6 +100,8 @@ def review_views(
 
 
 def _extreme_fragment_attrition(row: dict) -> bool:
+    """任一侧保留fragment不足候选数5%时返回真。"""
+
     ratios = []
     for prefix in ("peak_a", "peak_b"):
         candidate = _number(row.get(prefix + "_candidate_fragment_count"))
@@ -103,17 +112,25 @@ def _extreme_fragment_attrition(row: dict) -> bool:
 
 
 def _apex_near_window_edge(row: dict, tolerance_sec: float = 1.0) -> bool:
+    """检测任一提取apex是否位于RT窗口边缘指定秒数内。"""
+
     for prefix in ("peak_a", "peak_b"):
         apex = _number(row.get(prefix + "_apex_rt"))
         start = _number(row.get(prefix + "_rt_window_start"))
         end = _number(row.get(prefix + "_rt_window_end"))
-        if apex is not None and start is not None and end is not None:
-            if min(abs(apex - start), abs(apex - end)) <= tolerance_sec:
-                return True
+        if (
+            apex is not None
+            and start is not None
+            and end is not None
+            and min(abs(apex - start), abs(apex - end)) <= tolerance_sec
+        ):
+            return True
     return False
 
 
 def _number(value):
+    """用于审核分类的宽松浮点转换；失败时返回``None``。"""
+
     try:
         return float(value)
     except (TypeError, ValueError):

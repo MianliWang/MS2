@@ -16,11 +16,11 @@ from .xml_codec import _decode_mzxml_peaks, _local_name, _parse_mzxml_duration
 
 
 def load_ms2_spectra(path: Path) -> list[Spectrum]:
-    """Read centroided MS2 scans from mzML or mzXML.
+    """从mzML或mzXML读取质心化MS2扫描。
 
-    ``pyopenms`` is used when installed.  Conventional ProteoWizard mzML and
-    mzXML files also have streaming standard-library fallbacks, so the core
-    workflow has no mandatory third-party raw-reader dependency.
+    安装``pyopenms``时优先使用它；否则使用标准库流式解析常规ProteoWizard
+    文件，因此核心流程没有强制raw-reader依赖。只保留MS level 2且具有前体/
+    隔离窗口信息的扫描，RT统一为秒。该函数当前返回列表，随后应立即建立索引。
     """
 
     path = Path(path)
@@ -68,7 +68,7 @@ def load_ms2_spectra(path: Path) -> list[Spectrum]:
 
 
 def _load_mzxml_stdlib(path: Path) -> list[Spectrum]:
-    """Stream a centroided mzXML file without third-party dependencies."""
+    """不依赖第三方库，流式读取质心化mzXML中的MS2扫描。"""
 
     spectra: list[Spectrum] = []
     for _event, element in ET.iterparse(path, events=("end",)):
@@ -108,7 +108,7 @@ def _load_mzxml_stdlib(path: Path) -> list[Spectrum]:
 
 
 def _load_mzml_stdlib(path: Path) -> list[Spectrum]:
-    """Stream centroided MS2 spectra from conventional ProteoWizard mzML."""
+    """流式读取常规ProteoWizard mzML中的质心化MS2谱。"""
 
     spectra: list[Spectrum] = []
     for _event, element in ET.iterparse(path, events=("end",)):
@@ -116,12 +116,16 @@ def _load_mzml_stdlib(path: Path) -> list[Spectrum]:
             continue
         if _mzml_cv_value(element, "MS:1000511") == "2":
             precursor_mz = number(
-                _mzml_cv_value(element, "MS:1000827")
-                or _mzml_cv_value(element, "MS:1000744")
+                _mzml_cv_value(element, "MS:1000827") or _mzml_cv_value(element, "MS:1000744")
             )
             rt = _mzml_scan_time(element)
             arrays = _decode_mzml_arrays(element)
-            if precursor_mz is not None and rt is not None and "mz" in arrays and "intensity" in arrays:
+            if (
+                precursor_mz is not None
+                and rt is not None
+                and "mz" in arrays
+                and "intensity" in arrays
+            ):
                 lower_offset = number(_mzml_cv_value(element, "MS:1000828"))
                 upper_offset = number(_mzml_cv_value(element, "MS:1000829"))
                 spectra.append(
@@ -139,6 +143,8 @@ def _load_mzml_stdlib(path: Path) -> list[Spectrum]:
 
 
 def _mzml_cv_value(element: ET.Element, accession: str) -> str | None:
+    """在当前mzML元素树中查找指定CV accession的value。"""
+
     for child in element.iter():
         if _local_name(child.tag) == "cvParam" and child.attrib.get("accession") == accession:
             return child.attrib.get("value", "")
@@ -146,6 +152,8 @@ def _mzml_cv_value(element: ET.Element, accession: str) -> str | None:
 
 
 def _mzml_scan_time(element: ET.Element) -> float | None:
+    """读取scan start time并按unit accession统一转换为秒。"""
+
     for child in element.iter():
         if _local_name(child.tag) != "cvParam" or child.attrib.get("accession") != "MS:1000016":
             continue
@@ -157,6 +165,12 @@ def _mzml_scan_time(element: ET.Element) -> float | None:
 
 
 def _decode_mzml_arrays(element: ET.Element) -> dict[str, list[float]]:
+    """解码mzML中的m/z与intensity binaryDataArray。
+
+    支持32/64位小端浮点和zlib；遇到当前未实现的MS-Numpress时明确报错，
+    防止把压缩字节误读成数值。
+    """
+
     decoded: dict[str, list[float]] = {}
     for binary_array in element.iter():
         if _local_name(binary_array.tag) != "binaryDataArray":

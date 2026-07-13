@@ -9,6 +9,7 @@ import zlib
 from pathlib import Path
 from unittest.mock import patch
 
+from MSAI.python.calibrate_thresholds import calibrate_thresholds
 from MSAI.python.chiral_similarity import (
     ChiralPairThresholds,
     SpectrumSimilarity,
@@ -16,17 +17,20 @@ from MSAI.python.chiral_similarity import (
     compare_fragment_spectra,
     parse_fragment_string,
 )
-from MSAI.python.calibrate_thresholds import calibrate_thresholds
-from MSAI.python.get_chiral_frag import (
-    analyze_chiral_peak_pairs,
-    extract_fragments_for_rt_window,
-)
 from MSAI.python.easms_statistics import (
     benjamini_hochberg,
     enantiomer_log2_ratio_shift,
     enrichment_fold,
 )
-from MSAI.python.ms1_peak_picker import PeakPickingConfig, pick_chiral_peaks, savgol_smooth
+from MSAI.python.get_chiral_frag import (
+    analyze_chiral_peak_pairs,
+    extract_fragments_for_rt_window,
+)
+from MSAI.python.ms1_peak_picker import (
+    PeakPickingConfig,
+    pick_chiral_peaks,
+    savgol_smooth,
+)
 from MSAI.python.ms2.extraction import _trace_correlation
 from MSAI.python.ms2_core import (
     Spectrum,
@@ -42,6 +46,10 @@ class SimilarityTests(unittest.TestCase):
     def test_identical_spectra_have_unit_cosine(self):
         spectrum = "100,100;120,400;140,900;160,1600;180,2500;200,3600"
         result = compare_fragment_spectra(spectrum, spectrum)
+        assert result.cosine is not None
+        assert result.peak_a_explained_intensity is not None
+        assert result.peak_b_explained_intensity is not None
+        assert result.entropy_similarity is not None
         self.assertAlmostEqual(result.cosine, 1.0)
         self.assertEqual(result.matched_peaks, 6)
         self.assertAlmostEqual(result.peak_a_explained_intensity, 1.0)
@@ -64,6 +72,7 @@ class SimilarityTests(unittest.TestCase):
             [(200, 100), (220, 50)],
             min_relative_intensity=0,
         )
+        assert result.entropy_similarity is not None
         self.assertAlmostEqual(result.entropy_similarity, 0.0)
 
     def test_empty_and_low_match_spectra_are_not_candidates(self):
@@ -147,7 +156,9 @@ class PairWorkflowTests(unittest.TestCase):
             self.assertEqual(rows[0]["ms1_reference_status"], "supplied_double_peak")
             self.assertEqual(rows[0]["ms2_diagnostic_status"], "supported_same_compound")
             self.assertEqual(rows[0]["ms2_review_priority"], "P2_boundary_or_interference")
-            self.assertTrue(rows[0]["enantioselective_enrichment_status"].startswith("not_assessed"))
+            self.assertTrue(
+                rows[0]["enantioselective_enrichment_status"].startswith("not_assessed")
+            )
 
     def test_precursor_and_fragment_eic_tolerances_can_be_separated(self):
         spectra = [
@@ -175,9 +186,9 @@ class PairWorkflowTests(unittest.TestCase):
         self.assertEqual(split_tolerance["MS2"], "100.002,5000")
 
     def test_active_support_correlation_rejects_one_point_common_zero_match(self):
-        precursor = [0, 0, 1, 2, 1, 0, 0]
-        sparse_fragment = [0, 0, 0, 2, 0, 0, 0]
-        aligned_fragment = [0, 0, 1, 2, 1, 0, 0]
+        precursor = [0.0, 0.0, 1.0, 2.0, 1.0, 0.0, 0.0]
+        sparse_fragment = [0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0]
+        aligned_fragment = [0.0, 0.0, 1.0, 2.0, 1.0, 0.0, 0.0]
         settings = {
             "mode": "active_support",
             "min_relative_intensity": 0.05,
@@ -185,12 +196,10 @@ class PairWorkflowTests(unittest.TestCase):
             "max_apex_offset_scans": 1,
             "min_consecutive_fragment_scans": 3,
         }
-        self.assertIsNone(
-            _trace_correlation(precursor, sparse_fragment, **settings)
-        )
-        self.assertAlmostEqual(
-            _trace_correlation(precursor, aligned_fragment, **settings), 1.0
-        )
+        self.assertIsNone(_trace_correlation(precursor, sparse_fragment, **settings))
+        correlation = _trace_correlation(precursor, aligned_fragment, **settings)
+        assert correlation is not None
+        self.assertAlmostEqual(correlation, 1.0)
 
 
 class IndexAndPeakPickingTests(unittest.TestCase):
@@ -208,8 +217,8 @@ class IndexAndPeakPickingTests(unittest.TestCase):
         self.assertTrue(all(abs(value - 5) < 1e-9 for value in savgol_smooth([5.0] * 21, 7, 2)))
         rts = [float(index) for index in range(100)]
         intensity = [
-            220_000 * math.exp(-((index - 25) / 4) ** 2)
-            + 180_000 * math.exp(-((index - 70) / 5) ** 2)
+            220_000 * math.exp(-(((index - 25) / 4) ** 2))
+            + 180_000 * math.exp(-(((index - 70) / 5) ** 2))
             for index in range(100)
         ]
         result = pick_chiral_peaks(
@@ -219,6 +228,7 @@ class IndexAndPeakPickingTests(unittest.TestCase):
         )
         self.assertEqual(result.chromatographic_status, "double_peak")
         self.assertEqual([peak.scan_index for peak in result.peaks], [25, 70])
+        assert result.resolution is not None
         self.assertGreater(result.resolution, 1)
         self.assertTrue(all((peak.area_fwhm or 0) > 0 for peak in result.peaks))
 

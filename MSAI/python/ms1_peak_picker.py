@@ -17,6 +17,7 @@ from array import array
 from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from functools import lru_cache
+from itertools import pairwise
 from pathlib import Path
 
 try:
@@ -33,7 +34,7 @@ try:
         write_table,
     )
 except ImportError:
-    from ms2 import (  # type: ignore
+    from ms2 import (  # type: ignore[import-not-found]
         _decode_mzml_arrays,
         _decode_mzxml_peaks,
         _local_name,
@@ -49,6 +50,13 @@ except ImportError:
 
 @dataclass(frozen=True)
 class PeakPickingConfig:
+    """MS1目标EIC寻峰及双峰质量控制配置。
+
+    默认3 ppm、最低高度1e5和20 scan间距来自当前参考起点；SG窗口、prominence、
+    valley和resolution等尚需在人工复核真值上校准。将``min_height=None``可启用
+    对“峰低但背景很干净”更友好的自适应模式，但这类结果应进入人工审核。
+    """
+
     eic_ppm: float = 3.0
     sg_window: int = 7
     sg_polyorder: int = 2
@@ -67,6 +75,8 @@ class PeakPickingConfig:
     min_second_peak_ratio: float = 0.0
 
     def __post_init__(self):
+        """验证窗口奇偶性、阈值范围和扫描数，防止无效配置进入批处理。"""
+
         if self.eic_ppm <= 0 or not math.isfinite(self.eic_ppm):
             raise ValueError("eic_ppm must be finite and positive.")
         if self.sg_window < 3 or self.sg_window % 2 == 0:
@@ -104,7 +114,7 @@ class PeakPickingConfig:
 
     @property
     def adaptive_detection(self) -> bool:
-        """Whether any optional adaptive candidate-detection feature is enabled."""
+        """是否启用了任一相对prominence/时间间距等自适应候选规则。"""
 
         return (
             self.min_height is None
@@ -118,6 +128,8 @@ class PeakPickingConfig:
 
 @dataclass(frozen=True)
 class PickedPeak:
+    """一个最终选中MS1峰的apex、FWHM、面积、SNR和prominence指标。"""
+
     scan_index: int
     rt_sec: float
     intensity: float
@@ -130,6 +142,8 @@ class PickedPeak:
 
 @dataclass(frozen=True)
 class _PeakCandidate:
+    """平滑曲线上尚未映射回原始apex的内部候选峰。"""
+
     scan_index: int
     prominence: float
     prominence_ratio: float
@@ -138,7 +152,7 @@ class _PeakCandidate:
 
 @dataclass(frozen=True)
 class PeakCandidate:
-    """A high-recall candidate before pair selection or ``top_k`` truncation."""
+    """在双峰配对或``top_k``截断之前保留的高召回候选峰。"""
 
     scan_index: int
     rt_sec: float
@@ -150,6 +164,8 @@ class PeakCandidate:
 
 @dataclass(frozen=True)
 class PeakPickResult:
+    """一条EIC的信号状态、色谱分类、峰指标和人工复核原因。"""
+
     signal_status: str
     chromatographic_status: str
     peaks: tuple[PickedPeak, ...]
@@ -164,7 +180,7 @@ def resolution_passes_threshold(
     resolution: float | None,
     min_resolution: float | None,
 ) -> bool:
-    """Return whether resolution passes; zero/None explicitly disable the threshold."""
+    """判断分离度是否通过；阈值为0或``None``时明确表示关闭该门槛。"""
 
     return (
         min_resolution is None
@@ -179,7 +195,11 @@ def chromatographic_resolution_fwhm(
     first_fwhm_sec: float | None,
     second_fwhm_sec: float | None,
 ) -> float | None:
-    """Gaussian-equivalent chromatographic resolution from measured FWHM."""
+    """由实测FWHM计算Gaussian-equivalent色谱分离度。
+
+    使用``Rs = 1.17741 * Δt / (FWHM1 + FWHM2)``。任一FWHM缺失或RT顺序
+    无效时返回``None``，而不是假定固定峰宽。
+    """
 
     if not first_fwhm_sec or not second_fwhm_sec or second_rt_sec <= first_rt_sec:
         return None
@@ -187,7 +207,7 @@ def chromatographic_resolution_fwhm(
 
 
 def extract_target_eics(raw_path, targets) -> tuple[list[float], dict[float, array]]:
-    """Parse a raw file once and extract max-intensity MS1 EICs for all targets."""
+    """使用默认配置一次解析raw并提取全部目标的MS1 EIC。"""
 
     return extract_target_eics_with_config(raw_path, targets, PeakPickingConfig())
 
@@ -197,7 +217,11 @@ def extract_target_eics_with_config(
     targets,
     config: PeakPickingConfig,
 ) -> tuple[list[float], dict[float, array]]:
-    """Configured form of :func:`extract_target_eics`."""
+    """按配置一次扫描raw，为全部唯一目标同时提取MS1 EIC。
+
+    每个scan在目标ppm窗口内取最大强度而非求和；raw只读取一次，因此目标数
+    很多时明显快于逐个m/z重新解析文件。
+    """
 
     unique_targets = sorted({float(target) for target in targets if number(target) is not None})
     traces = {target: array("f") for target in unique_targets}
@@ -213,7 +237,7 @@ def extract_target_eics_with_config(
 
 
 def iter_ms1_spectra(path: Path):
-    """Yield ``(rt_seconds, sorted_mz, intensity)`` from mzML or mzXML."""
+    """从mzML/mzXML逐张产出``(RT秒, 已排序m/z, 强度)``的MS1扫描。"""
 
     suffix = path.suffix.lower()
     if suffix == ".mzxml":
@@ -225,6 +249,8 @@ def iter_ms1_spectra(path: Path):
 
 
 def _iter_mzxml_ms1(path: Path):
+    """流式读取mzXML中MS level 1扫描并及时清理XML节点。"""
+
     for _event, element in ET.iterparse(path, events=("end",)):
         if _local_name(element.tag) != "scan":
             continue
@@ -241,6 +267,8 @@ def _iter_mzxml_ms1(path: Path):
 
 
 def _iter_mzml_ms1(path: Path):
+    """流式读取mzML中MS level 1扫描并复用共享binary decoder。"""
+
     for _event, element in ET.iterparse(path, events=("end",)):
         if _local_name(element.tag) != "spectrum":
             continue
@@ -252,12 +280,23 @@ def _iter_mzml_ms1(path: Path):
                 yield rt, arrays["mz"], arrays["intensity"]
         element.clear()
 
+
 def pick_chiral_peaks(
     rts: list[float],
     intensities,
     config: PeakPickingConfig | None = None,
 ) -> PeakPickResult:
-    """Smooth one EIC, pick/refine up to two peaks, and compute quality metrics."""
+    """平滑一条EIC、选择并细化最多两个峰，再计算质量指标。
+
+    传统模式按绝对高度和scan间距找局部极大；自适应模式 additionally 使用
+    背景校正prominence、连续支持、秒级间距和峰间谷深。候选在平滑曲线上
+    检出后，会在各自峰盆限制内回到原始数据寻找apex。
+
+    baseline取原始EIC中位数，noise取``1.4826 × MAD``；SNR为背景校正峰高/
+    noise。FWHM边界内以梯形法计算背景校正面积。两个峰最终还可受谷峰比、
+    FWHM分离度和弱峰/强峰比例约束。返回``ambiguous``表示存在信号但不满足
+    稳健单/双峰结论，不应强行归入无峰。
+    """
 
     config = config or PeakPickingConfig()
     raw = [float(value) for value in intensities]
@@ -277,9 +316,7 @@ def pick_chiral_peaks(
     if config.adaptive_detection:
         candidate_details = _find_adaptive_peaks(smooth, rts, baseline, config)
         candidates = [candidate.scan_index for candidate in candidate_details]
-        adaptive_candidates = {
-            candidate.scan_index: candidate for candidate in candidate_details
-        }
+        adaptive_candidates = {candidate.scan_index: candidate for candidate in candidate_details}
     else:
         # Keep the historical absolute-height/scan-distance implementation
         # untouched for existing configurations and calibrated profiles.
@@ -384,9 +421,7 @@ def pick_chiral_peaks(
         and second_peak_ratio >= config.min_second_peak_ratio
     )
     status = (
-        "double_peak"
-        if first_peak.rt_sec < second_peak.rt_sec and passes_quality
-        else "ambiguous"
+        "double_peak" if first_peak.rt_sec < second_peak.rt_sec and passes_quality else "ambiguous"
     )
     separation_sec = second_peak.rt_sec - first_peak.rt_sec
     review_reasons: list[str] = []
@@ -422,10 +457,10 @@ def enumerate_peak_candidates(
     intensities,
     config: PeakPickingConfig | None = None,
 ) -> tuple[PeakCandidate, ...]:
-    """Return every accepted/refined candidate before final pair selection.
+    """返回最终配对和top-k截断之前的全部接受/细化候选。
 
-    This is intended for shadow-mode review and candidate recall measurement;
-    it does not assign a single/double chromatographic class.
+    用于shadow模式检查候选召回率，尤其观察很低但背景干净或距离很近的峰；
+    该函数本身不输出单峰/双峰分类。
     """
 
     config = config or PeakPickingConfig()
@@ -470,13 +505,16 @@ def enumerate_peak_candidates(
         if apex not in refined:
             refined.append(apex)
     return tuple(
-        PeakCandidate(index, rts[index], raw[index], None, None, None)
-        for index in sorted(refined)
+        PeakCandidate(index, rts[index], raw[index], None, None, None) for index in sorted(refined)
     )
 
 
 def savgol_smooth(values: list[float], window: int, polyorder: int) -> list[float]:
-    """Dependency-free Savitzky-Golay smoothing at derivative order zero."""
+    """无SciPy依赖的零阶Savitzky–Golay平滑。
+
+    仅在具有完整窗口的内部点应用卷积，边缘保留原值。SG窗口应根据真实scan
+    interval换算成时间尺度后校准，不能跨不同梯度/采样频率机械复用。
+    """
 
     weights = _savgol_weights(window, polyorder)
     radius = window // 2
@@ -484,27 +522,33 @@ def savgol_smooth(values: list[float], window: int, polyorder: int) -> list[floa
     for center in range(radius, len(values) - radius):
         smoothed[center] = sum(
             weight * values[center + offset]
-            for weight, offset in zip(weights, range(-radius, radius + 1))
+            for weight, offset in zip(weights, range(-radius, radius + 1), strict=True)
         )
     return smoothed
 
 
 @lru_cache(maxsize=32)
 def _savgol_weights(window: int, polyorder: int) -> tuple[float, ...]:
+    """计算并缓存指定窗口/多项式阶数的SG零阶卷积权重。"""
+
     radius = window // 2
-    design = [[float(offset**power) for power in range(polyorder + 1)] for offset in range(-radius, radius + 1)]
+    design = [
+        [float(offset**power) for power in range(polyorder + 1)]
+        for offset in range(-radius, radius + 1)
+    ]
     gram = [
         [sum(row[i] * row[j] for row in design) for j in range(polyorder + 1)]
         for i in range(polyorder + 1)
     ]
     inverse = _invert_matrix(gram)
     return tuple(
-        sum(inverse[0][power] * row[power] for power in range(polyorder + 1))
-        for row in design
+        sum(inverse[0][power] * row[power] for power in range(polyorder + 1)) for row in design
     )
 
 
 def _invert_matrix(matrix: list[list[float]]) -> list[list[float]]:
+    """用带主元选择的Gauss-Jordan消元求小型SG设计矩阵逆。"""
+
     size = len(matrix)
     augmented = [row[:] + [float(i == j) for j in range(size)] for i, row in enumerate(matrix)]
     for column in range(size):
@@ -520,12 +564,14 @@ def _invert_matrix(matrix: list[list[float]]) -> list[list[float]]:
             factor = augmented[row][column]
             augmented[row] = [
                 left - factor * right
-                for left, right in zip(augmented[row], augmented[column])
+                for left, right in zip(augmented[row], augmented[column], strict=True)
             ]
     return [row[size:] for row in augmented]
 
 
 def _find_peaks(values: list[float], min_height: float, min_distance: int) -> list[int]:
+    """传统模式：按绝对高度找局部极大并以强度优先执行最小scan间距抑制。"""
+
     candidates = [
         index
         for index in range(1, len(values) - 1)
@@ -546,12 +592,11 @@ def _find_adaptive_peaks(
     baseline: float,
     config: PeakPickingConfig,
 ) -> list[_PeakCandidate]:
-    """Find locally prominent peaks without requiring a universal intensity floor.
+    """无需统一绝对高度门槛地寻找局部显著峰。
 
-    Prominence is measured above the higher of the local contour base and the
-    global median baseline.  Dividing it by the baseline-corrected peak height
-    makes a clean low peak comparable to a clean high peak.  Continuous support
-    is the number of adjacent scans above half prominence.
+    prominence以局部轮廓底和全局中位baseline中较高者为基准；再除以背景校正
+    峰高，使“低但背景干净”的峰能与高峰按形状质量比较。连续support是半
+    prominence以上的相邻scan数。过近候选只有在峰间谷足够深时才可同时保留。
     """
 
     local_maxima = [
@@ -605,6 +650,8 @@ def _baseline_corrected_prominence(
     index: int,
     baseline: float,
 ) -> tuple[float, float]:
+    """返回背景校正prominence及其占背景校正峰高的比例。"""
+
     peak_height = values[index]
     left_min = peak_height
     for cursor in range(index - 1, -1, -1):
@@ -624,6 +671,8 @@ def _baseline_corrected_prominence(
 
 
 def _half_prominence_support(values: list[float], index: int, prominence: float) -> int:
+    """计算峰顶两侧连续高于半prominence水平的scan数量。"""
+
     if prominence <= 0:
         return 0
     threshold = values[index] - prominence / 2
@@ -642,6 +691,8 @@ def _peaks_are_too_close(
     rts: list[float],
     config: PeakPickingConfig,
 ) -> bool:
+    """按配置的秒级间距或scan间距判断两个候选是否过近。"""
+
     if config.min_distance_sec is not None:
         return abs(rts[first] - rts[second]) < config.min_distance_sec
     return abs(first - second) < config.min_distance_scans
@@ -653,6 +704,8 @@ def _baseline_corrected_valley_ratio(
     second: int,
     baseline: float,
 ) -> float:
+    """计算两峰之间的背景校正谷高/较弱峰高比例；越低分离越明显。"""
+
     left, right = sorted((first, second))
     valley = min(values[left : right + 1])
     lower_peak_height = min(values[first], values[second]) - baseline
@@ -667,12 +720,11 @@ def _refine_adaptive_candidates(
     candidates: list[int],
     radius: int,
 ) -> list[tuple[int, int]]:
-    """Refine candidates on raw data while keeping adjacent peak basins separate."""
+    """在原始数据上细化apex，同时用平滑曲线谷底隔开相邻峰盆。"""
 
     ordered = sorted(candidates)
     valley_boundaries = [
-        min(range(left + 1, right), key=smooth.__getitem__)
-        for left, right in zip(ordered, ordered[1:])
+        min(range(left + 1, right), key=smooth.__getitem__) for left, right in pairwise(ordered)
     ]
     refined: list[tuple[int, int]] = []
     for position, candidate in enumerate(ordered):
@@ -689,6 +741,8 @@ def _refine_adaptive_candidates(
 
 
 def _fwhm_bounds(values: list[float], apex: int, baseline: float) -> tuple[int, int] | None:
+    """寻找背景以上半峰高的左右边界scan；无法形成双侧边界时返回空。"""
+
     half_height = baseline + (values[apex] - baseline) / 2
     left = apex
     while left > 0 and values[left] >= half_height:
@@ -707,12 +761,12 @@ def _baseline_corrected_area(
     bounds: tuple[int, int],
     baseline: float,
 ) -> float:
+    """在给定FWHM边界内对背景校正强度做实际RT间隔梯形积分。"""
+
     left, right = bounds
     corrected = [max(0.0, value - baseline) for value in values[left : right + 1]]
     return sum(
-        (rts[left + index + 1] - rts[left + index])
-        * (corrected[index] + corrected[index + 1])
-        / 2
+        (rts[left + index + 1] - rts[left + index]) * (corrected[index] + corrected[index + 1]) / 2
         for index in range(len(corrected) - 1)
     )
 
@@ -726,7 +780,12 @@ def annotate_peaklist(
     config: PeakPickingConfig | None = None,
     review_output_path=None,
 ):
-    """Add automatic MS1 peak and quality columns to a CSV/XLSX peaklist."""
+    """为CSV/XLSX peaklist添加自动MS1峰和质量指标列。
+
+    每个目标写出RT、高度、FWHM、FWHM面积、SNR、prominence、面积比例、
+    双峰分离度、谷峰比及人工复核原因。它只生成MS1色谱参考，不写MS2身份
+    结论；可通过``review_output_path``另存需要人工检查的行。
+    """
 
     config = config or PeakPickingConfig()
     rows = read_table(Path(peaklist_path))
@@ -744,17 +803,29 @@ def annotate_peaklist(
         row["auto_signal_status"] = result.signal_status
         row["auto_chromatographic_status"] = result.chromatographic_status
         row["auto_peak1_rt_min"] = csv_scalar(result.peaks[0].rt_sec / 60) if result.peaks else ""
-        row["auto_peak2_rt_min"] = csv_scalar(result.peaks[1].rt_sec / 60) if len(result.peaks) > 1 else ""
+        row["auto_peak2_rt_min"] = (
+            csv_scalar(result.peaks[1].rt_sec / 60) if len(result.peaks) > 1 else ""
+        )
         row["auto_peak1_intensity"] = csv_scalar(result.peaks[0].intensity) if result.peaks else ""
-        row["auto_peak2_intensity"] = csv_scalar(result.peaks[1].intensity) if len(result.peaks) > 1 else ""
+        row["auto_peak2_intensity"] = (
+            csv_scalar(result.peaks[1].intensity) if len(result.peaks) > 1 else ""
+        )
         row["auto_peak1_width_sec"] = csv_scalar(result.peaks[0].width_sec) if result.peaks else ""
-        row["auto_peak2_width_sec"] = csv_scalar(result.peaks[1].width_sec) if len(result.peaks) > 1 else ""
+        row["auto_peak2_width_sec"] = (
+            csv_scalar(result.peaks[1].width_sec) if len(result.peaks) > 1 else ""
+        )
         row["auto_peak1_area_fwhm"] = csv_scalar(result.peaks[0].area_fwhm) if result.peaks else ""
-        row["auto_peak2_area_fwhm"] = csv_scalar(result.peaks[1].area_fwhm) if len(result.peaks) > 1 else ""
+        row["auto_peak2_area_fwhm"] = (
+            csv_scalar(result.peaks[1].area_fwhm) if len(result.peaks) > 1 else ""
+        )
         row["auto_peak1_snr"] = csv_scalar(result.peaks[0].snr) if result.peaks else ""
         row["auto_peak2_snr"] = csv_scalar(result.peaks[1].snr) if len(result.peaks) > 1 else ""
-        row["auto_peak1_prominence"] = csv_scalar(result.peaks[0].prominence) if result.peaks else ""
-        row["auto_peak2_prominence"] = csv_scalar(result.peaks[1].prominence) if len(result.peaks) > 1 else ""
+        row["auto_peak1_prominence"] = (
+            csv_scalar(result.peaks[0].prominence) if result.peaks else ""
+        )
+        row["auto_peak2_prominence"] = (
+            csv_scalar(result.peaks[1].prominence) if len(result.peaks) > 1 else ""
+        )
         row["auto_peak1_prominence_ratio"] = (
             csv_scalar(result.peaks[0].prominence_ratio) if result.peaks else ""
         )
@@ -783,6 +854,8 @@ def annotate_peaklist(
 
 
 def load_peak_config(path) -> PeakPickingConfig:
+    """从JSON加载寻峰配置，并兼容分开的quality_thresholds字段。"""
+
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     parameters = dict(payload.get("peak_picking_config", payload))
     parameters.update(payload.get("quality_thresholds", {}))
@@ -790,7 +863,11 @@ def load_peak_config(path) -> PeakPickingConfig:
 
 
 def _main(argv=None):
-    parser = argparse.ArgumentParser(description="Automatically pick up to two chiral peaks from targeted MS1 EICs.")
+    """解析MS1寻峰参数，标注peaklist并可输出人工审核子表。"""
+
+    parser = argparse.ArgumentParser(
+        description="Automatically pick up to two chiral peaks from targeted MS1 EICs."
+    )
     parser.add_argument("--peaklist", required=True)
     parser.add_argument("--raw", required=True)
     parser.add_argument("--output", required=True)

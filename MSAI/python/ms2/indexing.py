@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from typing import Iterable
+from collections.abc import Iterable
+from itertools import pairwise
 
 from .models import DiaData, Ms2Index, Spectrum
 
 
 def build_ms2_index(spectra: Iterable[Spectrum]) -> Ms2Index:
-    """Group spectra once instead of rebuilding a DIA copy for every row."""
+    """把MS2扫描按DIA中心分组，并为后续批量目标建立一次性索引。
+
+    每个窗口内部按RT排序，同时汇总实际fragment m/z范围和原始隔离边界。
+    对同一raw文件分析数百行目标时，应复用返回的``Ms2Index``，而不是为
+    每一行重新分组，这是当前速度优化的关键之一。
+    """
 
     grouped: dict[float, list[Spectrum]] = defaultdict(list)
     order: list[float] = []
@@ -47,18 +53,18 @@ def build_ms2_index(spectra: Iterable[Spectrum]) -> Ms2Index:
 
 
 def _ensure_sorted_peaks(spectrum: Spectrum) -> None:
-    """Keep m/z and intensity paired while enforcing the bisect invariant."""
+    """保证m/z升序且强度仍与其配对，以满足二分截取的前提。"""
 
     if len(spectrum.mz) != len(spectrum.intensity):
         raise ValueError("Spectrum m/z and intensity arrays must have equal length.")
-    if any(left > right for left, right in zip(spectrum.mz, spectrum.mz[1:])):
-        pairs = sorted(zip(spectrum.mz, spectrum.intensity))
+    if any(left > right for left, right in pairwise(spectrum.mz)):
+        pairs = sorted(zip(spectrum.mz, spectrum.intensity, strict=True))
         spectrum.mz = [mz for mz, _intensity in pairs]
         spectrum.intensity = [intensity for _mz, intensity in pairs]
 
 
 def preclist(spectra: Iterable[Spectrum]) -> list[float]:
-    """Return DIA precursor/window centers in first-seen order."""
+    """返回DIA窗口中心并保持它们在原始文件中的首次出现顺序。"""
 
     seen: list[float] = []
     for spectrum in spectra:
@@ -72,7 +78,11 @@ def matching_dia_windows(
     precursor: list[float] | Ms2Index,
     dia_iso_win: float,
 ) -> list[float]:
-    """Return all acquired windows containing m/z, nearest center first."""
+    """返回覆盖目标m/z的所有已采集窗口，最近中心排在最前。
+
+    传入``Ms2Index``时优先使用raw中的真实隔离边界；传入旧式中心列表时
+    才按``dia_iso_win``名义宽度计算。
+    """
 
     if isinstance(precursor, Ms2Index):
         return precursor.matching_windows(mz, dia_iso_win)
@@ -87,7 +97,7 @@ def first_dia_window(
     precursor: list[float] | Ms2Index,
     dia_iso_win: float,
 ) -> float | None:
-    """Select the closest acquired DIA window containing the feature."""
+    """选择覆盖目标的最近DIA窗口；没有覆盖时返回``None``。"""
 
     matches = matching_dia_windows(mz, precursor, dia_iso_win)
     return matches[0] if matches else None

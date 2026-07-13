@@ -2,11 +2,11 @@ import unittest
 from unittest.mock import patch
 
 from MSAI.python.ms1_peak_picker import (
-    chromatographic_resolution_fwhm,
-    PeakPickResult,
     PeakPickingConfig,
+    PeakPickResult,
     PickedPeak,
     annotate_peaklist,
+    chromatographic_resolution_fwhm,
     resolution_passes_threshold,
 )
 from MSAI.python.tune_peak_picker import _call
@@ -14,10 +14,9 @@ from MSAI.python.tune_peak_picker import _call
 
 class Ms1OutputConsistencyTests(unittest.TestCase):
     def test_fwhm_resolution_uses_half_height_conversion(self):
-        self.assertAlmostEqual(
-            chromatographic_resolution_fwhm(0.0, 10.0, 2.0, 3.0),
-            1.17741 * 2,
-        )
+        resolution = chromatographic_resolution_fwhm(0.0, 10.0, 2.0, 3.0)
+        assert resolution is not None
+        self.assertAlmostEqual(resolution, 1.17741 * 2)
 
     def test_annotate_peaklist_outputs_snr_for_each_automatic_peak(self):
         rows = [{"MZ": "100.0"}]

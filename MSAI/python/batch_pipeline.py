@@ -15,9 +15,13 @@ try:
     from .ms1_peak_picker import PeakPickingConfig, annotate_peaklist, load_peak_config
     from .ms2 import raw_files, read_table, write_table
 except ImportError:
-    from get_chiral_frag import analyze_chiral_peak_pairs  # type: ignore
-    from ms1_peak_picker import PeakPickingConfig, annotate_peaklist, load_peak_config  # type: ignore
-    from ms2 import raw_files, read_table, write_table  # type: ignore
+    from get_chiral_frag import analyze_chiral_peak_pairs  # type: ignore[import-not-found]
+    from ms1_peak_picker import (  # type: ignore[import-not-found]
+        PeakPickingConfig,
+        annotate_peaklist,
+        load_peak_config,
+    )
+    from ms2 import raw_files, read_table, write_table  # type: ignore[import-not-found]
 
 
 REQUIRED_MANIFEST_COLUMNS = {"sample_id", "mode", "peaklist", "raw", "output"}
@@ -34,7 +38,11 @@ def prepare_well_manifest(
     mz_column: str = "MZ",
     peak_config_json=None,
 ):
-    """Split a multi-well table and require an unambiguous raw match per well."""
+    """按well拆分合并peaklist，并要求每个well唯一匹配一个raw文件。
+
+    生成的manifest使用相对路径，便于整体移动；任何零匹配或多匹配都会中止，
+    防止实验pool与raw文件静默错配。
+    """
 
     combined_peaklist = Path(combined_peaklist).resolve()
     raw_dir = Path(raw_dir).resolve()
@@ -70,14 +78,20 @@ def prepare_well_manifest(
             "mz_column": mz_column,
         }
         if peak_config_json:
-            job["peak_config_json"] = os.path.relpath(Path(peak_config_json).resolve(), manifest_base)
+            job["peak_config_json"] = os.path.relpath(
+                Path(peak_config_json).resolve(), manifest_base
+            )
         manifest_rows.append(job)
     write_table(manifest_path, manifest_rows)
     return manifest_rows
 
 
 def run_batch_manifest(manifest_path, *, jobs: int = 2, resume: bool = True):
-    """Run independent raw files concurrently and isolate per-file failures."""
+    """按manifest并行运行独立raw文件，并隔离单文件失败。
+
+    ``resume``会跳过已有完整产物；多进程数量限制在CPU数以内。最终按manifest
+    原顺序返回结果，并写``batch_summary.json``。
+    """
 
     manifest_path = Path(manifest_path).resolve()
     rows = read_table(manifest_path)
@@ -91,7 +105,9 @@ def run_batch_manifest(manifest_path, *, jobs: int = 2, resume: bool = True):
             if not row.get(field):
                 continue
             path = Path(row[field])
-            row[field] = str(path if path.is_absolute() else (manifest_path.parent / path).resolve())
+            row[field] = str(
+                path if path.is_absolute() else (manifest_path.parent / path).resolve()
+            )
     jobs = max(1, min(int(jobs), os.cpu_count() or 1))
 
     indexed_results: dict[int, dict] = {}
@@ -108,8 +124,7 @@ def run_batch_manifest(manifest_path, *, jobs: int = 2, resume: bool = True):
     else:
         with ProcessPoolExecutor(max_workers=jobs) as executor:
             future_map = {
-                executor.submit(_run_job, row, resume): index
-                for index, row in enumerate(rows)
+                executor.submit(_run_job, row, resume): index for index, row in enumerate(rows)
             }
             for future in as_completed(future_map):
                 index = future_map[future]
@@ -132,6 +147,8 @@ def run_batch_manifest(manifest_path, *, jobs: int = 2, resume: bool = True):
 
 
 def _run_job(job: dict, resume: bool) -> dict:
+    """执行一个MS1、MS2或先MS1后MS2的full任务并返回结构化状态。"""
+
     started = time.perf_counter()
     sample_id = job["sample_id"]
     mode = job["mode"].strip().lower()
@@ -201,6 +218,8 @@ def _run_job(job: dict, resume: bool) -> dict:
 
 
 def _peak_config(job: dict) -> PeakPickingConfig:
+    """读取job指定的MS1配置；未指定时使用默认配置。"""
+
     path = job.get("peak_config_json", "").strip()
     if not path:
         return PeakPickingConfig()
@@ -208,6 +227,8 @@ def _peak_config(job: dict) -> PeakPickingConfig:
 
 
 def _augment_full_metadata(metadata_path: Path, sample_id: str, config: PeakPickingConfig) -> None:
+    """把batch样本ID和上游MS1配置补充到full模式sidecar。"""
+
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
     payload["batch_sample_id"] = sample_id
     payload["upstream_ms1_peak_picking"] = asdict(config)
@@ -215,9 +236,15 @@ def _augment_full_metadata(metadata_path: Path, sample_id: str, config: PeakPick
 
 
 def _main(argv=None):
-    parser = argparse.ArgumentParser(description="Prepare or run explicit multi-file MSAI manifests.")
+    """解析manifest prepare/run子命令并打印任务状态计数。"""
+
+    parser = argparse.ArgumentParser(
+        description="Prepare or run explicit multi-file MSAI manifests."
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    prepare = subparsers.add_parser("prepare", help="Split a combined well table and build a strict manifest.")
+    prepare = subparsers.add_parser(
+        "prepare", help="Split a combined well table and build a strict manifest."
+    )
     prepare.add_argument("--combined-peaklist", required=True)
     prepare.add_argument("--raw-dir", required=True)
     prepare.add_argument("--split-peaklist-dir", required=True)

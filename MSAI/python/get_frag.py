@@ -13,31 +13,29 @@ from pathlib import Path
 
 try:
     from .ms2 import (
-        column,
         build_ms2_index,
+        column,
         extract_window_result,
         first_dia_window,
         load_ms2_spectra,
         matching_raw_file,
         number,
         peak_files,
-        preclist,
         raw_files,
         read_table,
         workspace_paths,
         write_table,
     )
 except ImportError:
-    from ms2 import (  # type: ignore
-        column,
+    from ms2 import (  # type: ignore[import-not-found]
         build_ms2_index,
+        column,
         extract_window_result,
         first_dia_window,
         load_ms2_spectra,
         matching_raw_file,
         number,
         peak_files,
-        preclist,
         raw_files,
         read_table,
         workspace_paths,
@@ -46,15 +44,16 @@ except ImportError:
 
 
 def GetFrag(mz_tol: float, DIAisowin: float, RTwin=None, base_path=None):
-    """兼容 R 函数名的入口；实际实现见 get_frag()."""
+    """旧式大写名称兼容入口；实际逻辑见 :func:`get_frag`。"""
 
     return get_frag(mz_tol, DIAisowin, RTwin, base_path)
 
 
 def get_frag(mz_tol: float, dia_iso_win: float, rt_win=None, base_path=None):
-    """旧版单 RT 中心点 fragment extraction。
+    """按旧目录布局执行单RT中心点fragment extraction。
 
-    rt_win 参数只保留接口兼容；旧 R 核心逻辑里也没有真正使用它。
+    每行使用``mz + rt``，RT按分钟解释并固定提取``±10秒``。``rt_win``仅为
+    历史签名兼容，实际上不参与计算。当前Peak1/Peak2正式流程不应调用此函数。
     """
 
     base = Path(base_path or ".").resolve()
@@ -62,7 +61,7 @@ def get_frag(mz_tol: float, dia_iso_win: float, rt_win=None, base_path=None):
 
     peakfiles = peak_files(paths["peak"])
     if not peakfiles:
-        warnings.warn(f"No peaklist files found in {paths['peak']}; returning None.")
+        warnings.warn(f"No peaklist files found in {paths['peak']}; returning None.", stacklevel=2)
         return None
 
     msfiles = raw_files(paths["data"])
@@ -77,10 +76,10 @@ def get_frag(mz_tol: float, dia_iso_win: float, rt_win=None, base_path=None):
         mz_col = column(rows, "mz")
         rt_col = column(rows, "rt")
         if mz_col is None:
-            warnings.warn(f"{peakfile.name} has no mz/MZ column; skipping.")
+            warnings.warn(f"{peakfile.name} has no mz/MZ column; skipping.", stacklevel=2)
             continue
         if rt_col is None:
-            warnings.warn(f"{peakfile.name} has no rt column; skipping.")
+            warnings.warn(f"{peakfile.name} has no rt column; skipping.", stacklevel=2)
             continue
 
         for row in rows:
@@ -88,12 +87,14 @@ def get_frag(mz_tol: float, dia_iso_win: float, rt_win=None, base_path=None):
 
         rawfile = matching_raw_file(peakfile, msfiles)
         if rawfile is None:
-            warnings.warn(f"No matching raw MS data found for peaklist {peakfile.name}; skipping.")
+            warnings.warn(
+                f"No matching raw MS data found for peaklist {peakfile.name}; skipping.",
+                stacklevel=2,
+            )
             continue
 
         spectra = load_ms2_spectra(rawfile)
         spectra_index = build_ms2_index(spectra)
-        precursor = spectra_index.precursors
         for row in rows:
             mz = number(row.get(mz_col))
             rt = number(row.get(rt_col))
@@ -133,10 +134,9 @@ def _extract_fragments(
     rt_window_sec: tuple[float, float],
     legacy_last_scan_none: bool,
 ):
-    """旧 GetFrag 使用的薄包装。
+    """把新单窗口结果压缩为旧GetFrag只需要的fragment字符串。
 
-    单峰版只需要 MS2 fragment 字符串，不需要双峰版的 summary dict。
-    legacy_last_scan_none 用来保留 R 版 apex scan 落在最后一个 scan 时返回 NULL 的行为。
+    ``legacy_last_scan_none``保留历史边界行为；它不应传播到新分析接口。
     """
 
     result = extract_window_result(spectra, precurmz, mz_tol, mz_tol_unit, diawin, rt_window_sec)

@@ -2,8 +2,8 @@ import unittest
 from unittest.mock import patch
 
 from MSAI.python.ms1_peak_picker import (
-    PeakPickResult,
     PeakPickingConfig,
+    PeakPickResult,
     PickedPeak,
 )
 from MSAI.python.tune_peak_picker import (
@@ -95,9 +95,15 @@ class AdaptiveTuningIsolationTests(unittest.TestCase):
                 "MSAI.python.tune_peak_picker.extract_target_eics_with_config",
                 return_value=([60.0], traces),
             ),
-            patch("MSAI.python.tune_peak_picker._split", side_effect=lambda value: "test" if value.startswith("test") else "calibration"),
+            patch(
+                "MSAI.python.tune_peak_picker._split",
+                side_effect=lambda value: "test" if value.startswith("test") else "calibration",
+            ),
             patch("MSAI.python.tune_peak_picker._adaptive_core_grid", return_value=[core]),
-            patch("MSAI.python.tune_peak_picker._adaptive_quality_grid", return_value=[(0.95, 0.0, 0.02)]),
+            patch(
+                "MSAI.python.tune_peak_picker._adaptive_quality_grid",
+                return_value=[(0.95, 0.0, 0.02)],
+            ),
             patch("MSAI.python.tune_peak_picker.pick_chiral_peaks", side_effect=fake_pick),
         ):
             report = tune_peak_picker(

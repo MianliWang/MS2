@@ -7,14 +7,18 @@ import re
 from collections import Counter
 from pathlib import Path
 
-
 _RAW_ATTRIBUTE_PATTERN = re.compile(
     rb'\b(msLevel|collisionEnergy|activationMethod|windowWideness)="([^"]+)"'
 )
 
 
 def raw_acquisition_context(path: str | Path | None) -> dict:
-    """Aggregate selected acquisition attributes across a complete raw XML."""
+    """汇总整个raw XML中可直接观察到的关键采集属性。
+
+    该函数使用内存映射扫描属性，不解码峰数组，因此适合在报告阶段快速统计
+    MS1/MS2 scan数、碰撞能、activation method和window width。返回内容只
+    代表原始文件记录；论文方法和实验室笔记必须在其他provenance层保存。
+    """
 
     if not path:
         return {}
@@ -28,12 +32,14 @@ def raw_acquisition_context(path: str | Path | None) -> dict:
         "activationMethod": Counter(),
         "windowWideness": Counter(),
     }
-    with raw_path.open("rb") as handle:
-        with mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped:
-            for match in _RAW_ATTRIBUTE_PATTERN.finditer(mapped):
-                key = match.group(1).decode("ascii")
-                value = match.group(2).decode("utf-8", errors="replace")
-                counts[key][value] += 1
+    with (
+        raw_path.open("rb") as handle,
+        mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as mapped,
+    ):
+        for match in _RAW_ATTRIBUTE_PATTERN.finditer(mapped):
+            key = match.group(1).decode("ascii")
+            value = match.group(2).decode("utf-8", errors="replace")
+            counts[key][value] += 1
 
     observed_values = {
         key: [

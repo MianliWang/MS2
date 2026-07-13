@@ -66,9 +66,7 @@ class CompareMs2RunsTests(unittest.TestCase):
                 },
             )
             output = root / "queue.csv"
-            summary = compare_ms2_runs(
-                baseline, candidate, output, status_changes_only=True
-            )
+            summary = compare_ms2_runs(baseline, candidate, output, status_changes_only=True)
             self.assertEqual(summary["status_changed_rows"], 1)
             self.assertEqual(summary["queued_rows"], 1)
             rows = list(csv.DictReader(output.open(encoding="utf-8-sig")))

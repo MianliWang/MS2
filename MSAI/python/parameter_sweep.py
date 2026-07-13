@@ -10,8 +10,8 @@ try:
     from .get_chiral_frag import analyze_chiral_peak_pairs
     from .ms2 import build_ms2_index, load_ms2_spectra, write_table
 except ImportError:
-    from get_chiral_frag import analyze_chiral_peak_pairs  # type: ignore
-    from ms2 import build_ms2_index, load_ms2_spectra, write_table  # type: ignore
+    from get_chiral_frag import analyze_chiral_peak_pairs  # type: ignore[import-not-found]
+    from ms2 import build_ms2_index, load_ms2_spectra, write_table  # type: ignore[import-not-found]
 
 
 DEFAULT_VARIANTS = {
@@ -34,7 +34,11 @@ def run_sensitivity_sweep(
     peak_a_column="Peak1",
     peak_b_column="Peak2",
 ):
-    """Report result sensitivity; this does not estimate accuracy without labels."""
+    """执行单因素MS2敏感性扫描并复用一个内存raw索引。
+
+    输出展示状态和双侧可用谱数量对参数的敏感程度；没有独立人工真值时，它
+    不能估计accuracy，也不应以“得到更多supported”作为唯一优化目标。
+    """
 
     output_dir = Path(output_dir).resolve()
     load_started = time.perf_counter()
@@ -82,7 +86,9 @@ def run_sensitivity_sweep(
                     "raw_load_seconds_shared": raw_load_seconds,
                     "analysis_seconds": time.perf_counter() - started,
                     "rows": len(rows),
-                    "both_ms2_spectra": sum(bool(row["peak_a_MS2"] and row["peak_b_MS2"]) for row in rows),
+                    "both_ms2_spectra": sum(
+                        bool(row["peak_a_MS2"] and row["peak_b_MS2"]) for row in rows
+                    ),
                     **counts,
                     **{f"parameter_{name}": setting for name, setting in settings.items()},
                 }
@@ -93,7 +99,11 @@ def run_sensitivity_sweep(
 
 
 def _main(argv=None):
-    parser = argparse.ArgumentParser(description="Run one-factor MSAI parameter sensitivity analysis.")
+    """解析单因素敏感性扫描参数并报告完成的variant数量。"""
+
+    parser = argparse.ArgumentParser(
+        description="Run one-factor MSAI parameter sensitivity analysis."
+    )
     parser.add_argument("--peaklist", required=True)
     parser.add_argument("--raw", required=True)
     parser.add_argument("--output-dir", required=True)

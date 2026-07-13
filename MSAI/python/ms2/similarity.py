@@ -15,7 +15,11 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SpectrumSimilarity:
-    """Summary of a one-to-one fragment-ion comparison."""
+    """两张谱进行一对一fragment匹配后的摘要。
+
+    explained intensity分别报告每一侧被匹配fragment覆盖的原始总强度比例；
+    这能防止只有少数低强度巧合匹配却获得看似可接受的cosine。
+    """
 
     cosine: float | None
     matched_peaks: int
@@ -28,11 +32,11 @@ class SpectrumSimilarity:
 
 @dataclass(frozen=True)
 class ChiralPairThresholds:
-    """Conservative default screen, configurable for method validation.
+    """Peak1/Peak2谱图一致性的可配置筛选阈值。
 
-    A cosine threshold of 0.7 and six matched ions follow the commonly used
-    GNPS spectral-similarity screen.  Explained-intensity guards prevent a
-    handful of low-abundance coincidental matches from passing.
+    默认值是保守guardrail，不是本实验已完成独立真值验证的最终标准。
+    cosine、最少匹配碎片数和双侧解释强度必须联合通过；entropy阈值默认关闭，
+    只有用独立阳性/阴性标准校准后才建议启用。
     """
 
     min_cosine: float = 0.7
@@ -41,6 +45,8 @@ class ChiralPairThresholds:
     min_entropy_similarity: float | None = None
 
     def __post_init__(self):
+        """在创建配置时立即拒绝越界阈值，避免长批次运行后才失败。"""
+
         if not 0 <= self.min_cosine <= 1:
             raise ValueError("min_cosine must be between 0 and 1.")
         if self.min_matched_peaks < 1:
@@ -52,10 +58,10 @@ class ChiralPairThresholds:
 
 
 def parse_fragment_string(value: str | None) -> list[tuple[float, float]]:
-    """Parse the project CSV format ``mz,intensity;mz,intensity``.
+    """解析项目CSV格式``mz,intensity;mz,intensity``并按m/z排序。
 
-    Malformed, non-finite, or non-positive peaks are discarded so that one bad
-    cell does not abort a batch analysis.
+    格式错误、非有限或非正值fragment会被丢弃，使单个脏单元格不会终止整个
+    批次；但这种清理不能替代上游质量控制。
     """
 
     peaks: list[tuple[float, float]] = []
@@ -80,12 +86,12 @@ def compare_fragment_spectra(
     min_relative_intensity: float = 0.01,
     intensity_power: float = 0.5,
 ) -> SpectrumSimilarity:
-    """Compare two fragment spectra with exclusive peak matching.
+    """通过互斥的一对一fragment匹配比较两张MS2谱。
 
-    Intensities are square-root transformed by default before cosine scoring,
-    which reduces domination by a single base peak.  A peak may be matched at
-    most once; candidate pairs are selected by mass error, then by intensity
-    product.  Unmatched peaks remain in each cosine norm.
+    先按相对基峰阈值过滤，再按质量误差优先、强度乘积次优进行匹配。默认对
+    强度开平方，降低单个base peak对cosine的支配；未匹配峰仍保留在双方范数
+    中，因此会真实拉低相似度。函数同时计算匹配数、双侧解释强度和谱熵相似度。
+    空谱返回``cosine=None``，不应被当作不相似的阴性结果。
     """
 
     if fragment_mz_tol < 0 or not math.isfinite(fragment_mz_tol):
@@ -132,10 +138,10 @@ def align_fragment_spectra(
     fragment_mz_tol_unit: str = "Da",
     min_relative_intensity: float = 0.01,
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float]], list[tuple[int, int]]]:
-    """Return the exact filtered one-to-one alignment used for visualization.
+    """返回与相似度计算完全一致的过滤后谱和一对一匹配。
 
-    This keeps mirror-spectrum match coloring consistent with the similarity
-    calculation instead of independently matching the unfiltered CSV strings.
+    可视化必须调用它，而不能自行重新匹配原始CSV字符串，否则镜像谱颜色可能
+    与数值判定使用不同的fragment集合。
     """
 
     if fragment_mz_tol < 0 or not math.isfinite(fragment_mz_tol):
@@ -154,7 +160,11 @@ def classify_chiral_pair(
     similarity: SpectrumSimilarity,
     thresholds: ChiralPairThresholds | None = None,
 ) -> tuple[str, str]:
-    """Classify a separated peak pair without over-claiming R/S identity."""
+    """按阈值分类两张谱，同时避免过度宣称R/S身份。
+
+    通过只表示“两个已分离RT位置的相同前体得到相似MS2证据”。绝对构型和
+    对映体确认仍需要手性色谱证据及标准品/正交验证。
+    """
 
     thresholds = thresholds or ChiralPairThresholds()
     if similarity.cosine is None:
@@ -188,6 +198,8 @@ def classify_chiral_pair(
 
 
 def _prepare_peaks(peak_data, min_relative_intensity: float) -> list[tuple[float, float]]:
+    """清理谱数据，并移除低于基峰指定比例的fragment。"""
+
     if isinstance(peak_data, str) or peak_data is None:
         peaks = parse_fragment_string(peak_data)
     else:
@@ -207,6 +219,8 @@ def _prepare_peaks(peak_data, min_relative_intensity: float) -> list[tuple[float
 
 
 def _pair_tolerance(mz_a: float, mz_b: float, tolerance: float, unit: str) -> float:
+    """返回一对fragment在Da或ppm定义下允许的绝对质量误差。"""
+
     if unit == "Da":
         return tolerance
     return ((mz_a + mz_b) / 2) * tolerance / 1_000_000
@@ -218,7 +232,7 @@ def _exclusive_matches(
     tolerance: float,
     unit: str,
 ) -> list[tuple[int, int]]:
-    """Generate only nearby candidate pairs, then enforce one-to-one use."""
+    """只生成质量邻近候选对，再贪心保证每个fragment最多使用一次。"""
 
     masses_b = [mz for mz, _intensity in peaks_b]
     candidates: list[tuple[float, float, int, int]] = []
@@ -248,7 +262,7 @@ def _entropy_similarity(
     peaks_b: list[tuple[float, float]],
     matches: list[tuple[int, int]],
 ) -> float:
-    """Weighted spectral-entropy similarity on the exclusive alignment."""
+    """在互斥对齐上计算加权谱熵相似度，范围裁剪到0至1。"""
 
     probability_a = _entropy_weight([intensity for _mz, intensity in peaks_a])
     probability_b = _entropy_weight([intensity for _mz, intensity in peaks_b])
@@ -263,12 +277,14 @@ def _entropy_similarity(
 
     entropy_a = _shannon_entropy(aligned_a)
     entropy_b = _shannon_entropy(aligned_b)
-    mixture = [(left + right) / 2 for left, right in zip(aligned_a, aligned_b)]
+    mixture = [(left + right) / 2 for left, right in zip(aligned_a, aligned_b, strict=True)]
     divergence = 2 * _shannon_entropy(mixture) - entropy_a - entropy_b
     return min(1.0, max(0.0, 1.0 - divergence / math.log(4)))
 
 
 def _entropy_weight(intensities: list[float]) -> list[float]:
+    """归一化强度；对低熵、少数峰主导的谱进行熵权重变换。"""
+
     total = sum(intensities)
     probability = [intensity / total for intensity in intensities]
     entropy = _shannon_entropy(probability)
@@ -281,4 +297,6 @@ def _entropy_weight(intensities: list[float]) -> list[float]:
 
 
 def _shannon_entropy(probability: list[float]) -> float:
+    """计算离散概率向量的Shannon entropy，忽略零概率项。"""
+
     return -sum(value * math.log(value) for value in probability if value > 0)

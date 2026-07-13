@@ -66,6 +66,56 @@ MSAI/data/IG_STD500nM_EASMSV1_2.mzXML
 
 ## 工作流程
 
+下面的流程图把“可选MS1定位”“核心MS2证据提取”和“人工复核”分成了三层。虚线表示可选输入或参考信息，不代表必须先运行MS1才能运行MS2。
+
+```mermaid
+flowchart TD
+    A[目标表<br/>Compound_ID + MZ + Peak1 + Peak2] --> B{Peak1和Peak2<br/>是否已经过人工复核?}
+    R[mzXML / mzML原始文件] --> C
+
+    subgraph MS1[可选MS1参考层：只负责色谱RT定位]
+        B -- 否或不确定 --> M1[按目标MZ提取MS1 EIC]
+        M1 --> M2[SG平滑与候选峰检测]
+        M2 --> M3[FWHM / 面积 / SNR / 分离度]
+        M3 --> M4[MS1图像与人工复核]
+    end
+
+    B -- 是 --> C[逐行读取目标MZ与两个RT]
+    M4 -. 复核后的RT .-> C
+
+    subgraph CORE[核心DIA-MS2分析层：步骤4至7]
+        C --> D[读取MS2 scans并建立DIA窗口索引]
+        D --> E{目标MZ是否落入<br/>真实采集DIA窗口?}
+        E -- 否 --> E0[not_evaluable<br/>NO_ACQUIRED_DIA_WINDOW]
+        E -- 是 --> F1[在Peak1 RT窗口重建共洗脱碎片谱]
+        E -- 是 --> F2[在Peak2 RT窗口重建共洗脱碎片谱]
+        F1 --> G[一对一对齐两张多碎片谱]
+        F2 --> G
+        G --> H[计算cosine / entropy<br/>匹配碎片数 / 双侧解释强度]
+        H --> I{证据是否充分且一致?}
+        I -- 一致 --> I1[supported_same_compound]
+        I -- 谱图冲突 --> I2[conflicting_spectra]
+        I -- 证据不足 --> I3[insufficient_evidence]
+        I -- 无法形成双侧谱 --> I4[not_evaluable]
+    end
+
+    subgraph REVIEW[步骤8：可视化与人工复核]
+        E0 --> J[结果CSV与metadata sidecar]
+        I1 --> J
+        I2 --> J
+        I3 --> J
+        I4 --> J
+        J --> K[HTML技术报告]
+        J --> L[逐目标SVG / PNG镜像谱]
+        L --> N[按状态、问题代码、机器、pool和优先级分类]
+        N --> O[人工标注表与迭代参数队列]
+    end
+
+    P[方法论文、仪器记录、标准品] -. 仅作为来源分层的参考信息 .-> J
+```
+
+图中两个RT位置各自应产生一张含有多个fragment m/z峰的MS2谱；这里的“双峰”指色谱上的`Peak1/Peak2`，不是MS2谱只能含两个碎片峰。
+
 ```text
 1. 用 experiment + pool + DIA segment 匹配原始文件
 2. 读取目标 Compound_ID、MZ、Peak1、Peak2
@@ -212,7 +262,17 @@ MSAI/
 py -3.12 -m pytest -q tests
 ```
 
-当前验证结果：`61 passed`。核心mzXML/mzML读取不强制依赖`pyopenms`；PNG导出需要Pillow。
+代码提交前同时运行固定版本的格式、静态规则和类型检查：
+
+```powershell
+uvx ruff@0.14.14 format --check MSAI/python tests
+uvx ruff@0.14.14 check MSAI/python tests
+uvx --with pillow pyright@1.1.408
+```
+
+`uvx`会把开发工具放在隔离缓存中，不会污染项目运行环境。Ruff配置位于仓库根目录
+`pyproject.toml`，Pyright配置位于`pyrightconfig.json`；两者都检查核心代码和测试。
+核心mzXML/mzML读取不强制依赖`pyopenms`，PNG导出需要Pillow。
 
 ## 主要文档
 
