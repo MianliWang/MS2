@@ -20,7 +20,7 @@ def main(argv=None):
     parser.add_argument("--input", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument(
-        "--standard", default=str(root / "standards" / "ms2_diagnostic_standard_v1.json")
+        "--standard", default=str(root / "standards" / "ms2_diagnostic_standard_v2.json")
     )
     parser.add_argument("--sidecar", help="Defaults to <input>.metadata.json")
     parser.add_argument(

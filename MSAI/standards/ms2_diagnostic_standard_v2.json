@@ -1,0 +1,85 @@
+{
+  "standard_id": "MSAI-MS2-DIAGNOSTIC-v2",
+  "supersedes": "MSAI-MS2-DIAGNOSTIC-v1",
+  "scope": "Two spectra extracted independently at two supplied chromatographic retention times",
+  "claim_boundary": "Supports or conflicts with same-compound identity; does not assign R/S or prove enantioselective enrichment",
+  "calibration_state": "screening_guardrails_not_yet_calibrated_against_independent_truth_set",
+  "change_from_v1": "Promote the paper-derived 10-second precursor-fragment RT half-window; retain v1 unchanged as the historical RT8 definition",
+  "preprocessing": {
+    "precursor_eic_tolerance_ppm": 10.0,
+    "rt_half_window_seconds": 10.0,
+    "close_peak_window_rule": "half_width=min(10.0, 0.4*rt_separation_seconds)",
+    "fragment_coelution_min_pearson": 0.9,
+    "spectrum_min_relative_intensity": 0.01,
+    "intensity_transform_for_cosine": "square_root",
+    "fragment_alignment_tolerance_da": 0.01,
+    "fragment_matching": "exclusive_one_to_one"
+  },
+  "parameter_provenance": {
+    "rt_half_window_seconds": {
+      "source_type": "reference_method",
+      "source": "Wang et al., Orthogonal molecular annotation in mass spectrometry with AdductMLib",
+      "doi": "10.26434/chemrxiv.10001689/v1",
+      "location": "Methods page 17, manuscript lines 337-339"
+    },
+    "fragment_coelution_min_pearson": {
+      "source_type": "reference_method",
+      "source": "Wang et al., Orthogonal molecular annotation in mass spectrometry with AdductMLib",
+      "doi": "10.26434/chemrxiv.10001689/v1",
+      "location": "Methods page 17, manuscript lines 338-339 and 345-348"
+    },
+    "precursor_eic_tolerance_ppm": {
+      "source_type": "legacy_compatibility_hyperparameter",
+      "paper_parameter": false,
+      "future_action": "calibrate against measured mass error and independent truth data"
+    },
+    "spectrum_min_relative_intensity": {
+      "source_type": "project_empirical_hyperparameter",
+      "paper_parameter": false,
+      "future_action": "calibrate on blinded positive and interference spectra"
+    },
+    "fragment_alignment_tolerance_da": {
+      "source_type": "project_empirical_hyperparameter",
+      "paper_parameter": false,
+      "future_action": "calibrate against observed fragment mass error"
+    },
+    "guardrails": {
+      "source_type": "external_and_project_empirical_hyperparameters",
+      "paper_parameter": false,
+      "note": "cosine 0.7 and six matches borrow common GNPS defaults; 50 percent explained intensity is a project guardrail"
+    }
+  },
+  "decision_order": [
+    "not_attempted_or_not_evaluable",
+    "insufficient_matched_fragments",
+    "conflicting_similarity_or_explained_intensity",
+    "supported_same_compound"
+  ],
+  "guardrails": {
+    "min_matched_fragments": 6,
+    "min_cosine": 0.7,
+    "min_explained_intensity_each_spectrum": 0.5,
+    "min_entropy_similarity": null
+  },
+  "statuses": {
+    "supported_same_compound": "All enabled MS2 guardrails pass",
+    "conflicting_spectra": "Enough matched ions exist but at least one identity guardrail fails",
+    "insufficient_evidence": "Both spectra exist but fewer than six fragments match",
+    "not_evaluable": "The acquisition/window/signal cannot yield a two-spectrum comparison",
+    "not_attempted": "Two retention-time coordinates were not supplied"
+  },
+  "manual_review_required_for": [
+    "all conflicting_spectra rows",
+    "all overlapping DIA-window rows",
+    "rows with strongly asymmetric unmatched intensity or shared RT/DIA targets",
+    "supported rows near a decision boundary",
+    "a representative audit sample of supported rows"
+  ],
+  "future_calibration": {
+    "unit": "compound, not injection",
+    "required_truth": "authentic same-compound positives plus structurally related/interference negatives",
+    "validation": "compound-grouped train/validation/test split across batches",
+    "selection_target": "prespecified sensitivity/specificity or false-positive-rate target",
+    "report": "confidence intervals, confusion matrix, threshold stability, and held-out performance"
+  }
+}

@@ -160,7 +160,7 @@ def export_ms2_review(
             "min_cosine": thresholds.min_cosine,
             "min_matched_peaks": thresholds.min_matched_peaks,
             "min_explained_intensity": thresholds.min_explained_intensity,
-            "rt_half_window_sec": parameters.get("rt_half_window_sec", 8.0),
+            "rt_half_window_sec": parameters.get("rt_half_window_sec", 10.0),
             "min_fragment_correlation": parameters.get("min_fragment_correlation", 0.9),
             "fragment_correlation_mode": parameters.get("fragment_correlation_mode", "full_window"),
             "correlation_min_relative_intensity": parameters.get(

@@ -53,6 +53,9 @@ from .similarity import (
 )
 
 
+DEFAULT_RT_HALF_WINDOW_SEC = 10.0
+
+
 def GetChiralFrag(
     mz_tol: float,
     DIAisowin: float,
@@ -182,7 +185,7 @@ def analyze_chiral_peak_pairs(
     peak_a_column: str = "Peak1",
     peak_b_column: str = "Peak2",
     rt_unit: str = "min",
-    rt_half_window_sec: float = 8.0,
+    rt_half_window_sec: float = DEFAULT_RT_HALF_WINDOW_SEC,
     mz_tol: float = 10.0,
     mz_tol_unit: str = "ppm",
     precursor_eic_mz_tol: float | None = None,
@@ -804,7 +807,9 @@ def main(argv=None):
     parser.add_argument("--peak-a-column", default="Peak1")
     parser.add_argument("--peak-b-column", default="Peak2")
     parser.add_argument("--rt-unit", choices=("min", "sec"), default="min")
-    parser.add_argument("--rt-half-window-sec", type=float, default=8.0)
+    parser.add_argument(
+        "--rt-half-window-sec", type=float, default=DEFAULT_RT_HALF_WINDOW_SEC
+    )
     parser.add_argument("--mz-tol", type=float, default=10.0)
     parser.add_argument("--mz-tol-unit", choices=("ppm", "Da", "legacy_fraction"), default="ppm")
     parser.add_argument(

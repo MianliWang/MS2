@@ -1,5 +1,7 @@
 import base64
 import csv
+import inspect
+import json
 import math
 import struct
 import tempfile
@@ -107,6 +109,18 @@ class MzXmlFallbackTests(unittest.TestCase):
 
 
 class PairWorkflowTests(unittest.TestCase):
+    def test_primary_rt_half_window_matches_reference_method(self):
+        default = inspect.signature(analyze_chiral_peak_pairs).parameters[
+            "rt_half_window_sec"
+        ].default
+        self.assertEqual(default, 10.0)
+        standard = json.loads(
+            Path("MSAI/standards/ms2_diagnostic_standard_v2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(standard["preprocessing"]["rt_half_window_seconds"], 10.0)
+
     @staticmethod
     def _spectra():
         fragment_mz = [100, 120, 140, 160, 180, 200]

@@ -244,7 +244,42 @@ MSAI/
 
 ## 参数与科学边界
 
-当前兼容默认值包括10 ppm EIC窗口、8秒RT半窗口、碎片共洗脱相关性大于0.9、0.01 Da谱图对齐、cosine不低于0.7、至少6个匹配碎片以及两侧至少50%解释强度。
+本项目将参数来源分为六类，避免把工程默认值误写成论文标准：
+
+- **论文Method**：来自Wang等人的*Orthogonal molecular annotation in mass spectrometry with AdductMLib*（[ChemRxiv DOI: 10.26434/chemrxiv.10001689/v1](https://doi.org/10.26434/chemrxiv.10001689/v1)）；
+- **raw实测**：直接读取当前mzXML/mzML中的隔离窗口、碰撞能等采集元数据；
+- **legacy兼容**：继承早期`GetFrag`/手性双峰流程以保持结果可比较，不代表论文推荐值；
+- **外部经验值**：借用其他工作流的常见默认值，但尚未在本方法上完成校准；
+- **项目经验值**：为降低偶然匹配或保持保守筛选而设置，暂无外部出处；
+- **实验性shadow值**：只用于敏感性分析和人工审核，不能静默替换主流程。
+
+论文Method第17页“Data extraction and preprocessing”（正文行335–350）明确给出：固定DIA隔离窗口为`4.5 Da`、每个样品采集三个DIA文件、前体–碎片RT对齐为`±10 seconds`、最低色谱相关性为`0.9`，并要求加合物对`Pearson r > 0.90`且RT差小于10秒。第16页正文行325–329另写DIA窗口为`5 m/z`且重叠`1 m/z`，与第17页的`4.5 Da`存在原文内部差异；仓库保留两项记录，不自行猜测合并。机器可读摘录见[参考方法profile](MSAI/config/acquisition_profiles/adductmlib_chemrxiv_20260129_v1.json)，详细核对见[采集参数来源与冲突](MSAI/docs/acquisition_parameter_reconciliation.md)。
+
+下表覆盖当前主流程中会改变MS2提取、谱图比较或自动分类的科学参数；I/O列名、输出路径和`--no-metadata`等非科学选项不列入。
+
+| 环节 | 参数 | 当前主流程值 | 参考来源 | 状态与后续处理 |
+| --- | --- | ---: | --- | --- |
+| RT窗口 | `rt_half_window_sec` | `10 s` | **论文Method第17页正文行337–339规定`±10 s`** | 当前主流程已与论文一致；`8 s`仅保留为历史比较值，变更后结果必须重新生成和审核 |
+| 近峰防重叠 | `half_width=min(configured, 0.4*RT separation)` | `0.4` | 项目工程规则，论文未给出 | 保留两个窗口间20%空隙；属于经验性超参数，需用近距离双峰真值调整 |
+| EIC质量窗口 | `mz_tol`及未单独指定时的precursor/fragment EIC tolerance | `10 ppm` | 手性提取兼容默认值，论文Method未给出EIC tolerance | 论文正文中的`5 ppm`用于候选结构检索，不是MS2 EIC提取参数；本值需结合仪器质量误差和真值集校准 |
+| EIC独立容差 | `precursor_eic_mz_tol`、`fragment_eic_mz_tol` | 默认继承`10 ppm` | 项目为区分前体提取与fragment EIC/centroid合并而新增 | 可分别校准；作者笔记中的`3 ppm`不在论文PDF Method中且适用范围未确认，只能做shadow比较 |
+| DIA窗口 | raw isolation bounds；缺失时`dia_iso_win` fallback | raw优先；fallback `15 m/z` | raw实测优先；当前raw报告`15 m/z`。论文第16页为`5 m/z + 1 m/z overlap`，第17页为`4.5 Da` | `15`只可描述为当前raw/fallback行为，不能描述为论文Method；复现论文时需先解决论文内部差异 |
+| fragment候选范围 | `fragment_mz < precursor_mz - 10 Da` | `10 Da`质量差 | legacy兼容规则，论文未给出 | 项目经验性过滤，应在不同前体质量和碎裂类型上复核 |
+| fragment绝对强度 | `min_fragment_intensity` | `2000` | legacy `GetFrag`兼容阈值；论文未给出 | 未经独立真值验证，需按噪声水平、批次和仪器响应校准 |
+| fragment相对强度 | `min_fragment_relative_intensity` | `0.0` | 项目默认值 | 当前重建阶段不追加相对强度过滤；可作为方法开发参数调整 |
+| 共洗脱相关性 | `min_fragment_correlation` | 严格`Pearson r > 0.9` | **论文Method第17页正文行338–339及346–348** | 论文直接支持；当前代码与论文一致 |
+| 相关性算法 | `fragment_correlation_mode` | `full_window` | legacy兼容的整窗Pearson；论文只给阈值，未规定共同零值处理 | 主流程兼容值；应报告算法实现，不能仅报告`0.9` |
+| active-support相关性 | relative support / minimum scans / apex offset / consecutive scans | `0.05 / 5 / 1 / 3` | EASMSV1可视审计后设置的实验性shadow值，论文未给出 | 默认`full_window`模式下不生效；没有盲法标签前不得升级为主标准 |
+| 候选谱合并 | `consensus_scans` | `1` | legacy兼容值，论文未给出 | 经验性超参数；应比较多扫描共识谱的稳定性 |
+| 比较前低强度过滤 | `min_relative_intensity` | 基峰的`1%` | 项目经验性默认值，论文未给出 | 用于减少低强度偶然匹配；需做阈值敏感性分析 |
+| fragment谱图对齐 | `fragment_mz_tol` | `0.01 Da` | 项目工程默认值，论文未给出 | 未由论文或独立真值集验证；应依据实测fragment质量误差分布调整 |
+| cosine强度变换 | `intensity_power` | `0.5`（平方根） | 项目谱图比较实现，论文未给出 | 降低单一base peak支配；需和不变换或其他变换进行验证 |
+| cosine阈值 | `min_cosine` | `0.7` | 借用[GNPS molecular networking](https://ccms-ucsd.github.io/GNPSDocumentation/networking/)常见默认值；AdductMLib论文未给出 | 外部经验性超参数，不是本方法已验证标准；需用独立阳性/阴性谱图校准 |
+| 最少匹配碎片 | `min_matched_peaks` | `6` | 同样借用GNPS常见默认值；AdductMLib论文未给出 | 防止少量匹配产生虚高cosine，但可能排除稀疏真阳性；需按化合物类别校准 |
+| 双侧解释强度 | `min_explained_intensity` | 每侧`50%` | 项目保守guardrail，论文和GNPS默认规则均未给出 | 项目经验性超参数；用于避免匹配只覆盖低强度碎片，需用独立真值集调整 |
+| entropy阈值 | `min_entropy_similarity` | `None`（关闭） | 项目保守选择，论文未给出 | 当前只报告entropy，不参与pass/fail；校准完成前保持关闭 |
+
+因此，当前自动分类只能称为**包含论文约束的项目筛选流程**，不能整体称为“论文已经验证的诊断标准”。论文有明确出处的参数应按原文实现；论文未定义的参数必须在结果metadata中记录实际值，并明确标注为兼容值、经验性超参数或实验性shadow值。后续调整应使用authentic same-compound阳性、近等质量/共洗脱干扰阴性，按compound和batch分组建立独立验证集，再预先指定错误率目标进行校准；不能根据当前输出反向挑选看起来更好的阈值。
 
 这些参数不能通过降低阈值来弥补：
 
@@ -254,7 +289,7 @@ MSAI/
 - 固定碰撞能没有产生的碎片；
 - DIA共隔离造成的复杂背景。
 
-参数开发、MS1 FWHM/SNR/面积/分离度、批处理、E-ASMS效应量和BH多重检验的完整说明已移至[扩展开发参考](MSAI/docs/extended_development_reference.md)。
+参数开发、MS1 FWHM/SNR/面积/分离度、批处理、E-ASMS效应量和BH多重检验的完整说明已移至[扩展开发参考](MSAI/docs/extended_development_reference.md)。当前版本化规则及未来校准要求见[MS2诊断标准](MSAI/docs/ms2_diagnostic_standard.md)。
 
 ## 测试
 

@@ -5,8 +5,11 @@ a finished biological gold standard.  It asks one question: do independently
 extracted fragment spectra at two supplied LC peaks support the same compound?
 It does not call R/S configuration and does not infer enrichment.
 
-The versioned machine-readable definition is
-[`standards/ms2_diagnostic_standard_v1.json`](../standards/ms2_diagnostic_standard_v1.json).
+The current versioned machine-readable definition is
+[`standards/ms2_diagnostic_standard_v2.json`](../standards/ms2_diagnostic_standard_v2.json).
+Version 2 changes the primary RT half-window from 8 to 10 seconds to follow the
+AdductMLib Methods section; version 1 remains unchanged as the historical RT8
+definition.
 
 ## Decision sequence
 
@@ -27,19 +30,19 @@ coincidental low-intensity matches dominating the result.  They have not yet
 been tuned against an independent labeled MS2 truth set, so counts produced by
 them are screening counts, not estimates of diagnostic accuracy.
 
-The supplied AdductMLib Methods section directly corroborates the current
-chromatographic-correlation cutoff (>0.9), but it does not validate the cosine,
-six-match, explained-intensity, 2,000-intensity, or 0.01 Da thresholds. Its
-10-second RT alignment and the author's 3 ppm note are retained as shadow
-variants because they change spectrum availability on EASMSV1. Acquisition and
-processing provenance is reconciled in
+The supplied AdductMLib Methods section directly specifies the current
+10-second precursor-fragment RT alignment and corroborates the chromatographic-
+correlation cutoff (>0.9), but it does not validate the cosine, six-match,
+explained-intensity, 2,000-intensity, or 0.01 Da thresholds. The author's 3 ppm
+note remains a shadow variant because its scope is not stated in the PDF.
+Acquisition and processing provenance is reconciled in
 [`acquisition_parameter_reconciliation.md`](acquisition_parameter_reconciliation.md).
 
 The compatibility extractor computes Pearson across the full RT window. A new
 experimental `active_support` mode excludes common zero/tail scans and adds
 minimum-support plus apex-offset guards. It addresses a failure mode found in
-the 8-vs-10-second visual audit, but its thresholds are not part of diagnostic
-standard v1 and cannot silently change the primary classification.
+the historical 8-vs-10-second visual audit, but its thresholds are not part of
+diagnostic standard v2 and cannot silently change the primary classification.
 
 ## How a real standard should be established
 

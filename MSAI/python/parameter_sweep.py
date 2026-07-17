@@ -46,7 +46,7 @@ def run_sensitivity_sweep(
     raw_load_seconds = time.perf_counter() - load_started
     baseline = {
         "mz_tol": 10.0,
-        "rt_half_window_sec": 8.0,
+        "rt_half_window_sec": 10.0,
         "min_fragment_correlation": 0.9,
         "consensus_scans": 1,
         "fragment_mz_tol": 0.01,

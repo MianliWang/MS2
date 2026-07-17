@@ -63,7 +63,7 @@ window ranges should be combined for this peak list.
 | --- | ---: | ---: | --- |
 | MS1 EIC tolerance | 3 ppm | author lab note: 3 ppm | already aligned |
 | MS2 shared EIC tolerance | 10 ppm | lab note: 3 ppm, scope unknown | shadow comparison; do not overwrite |
-| precursor–fragment RT half-window | 8 s | reference alignment within 10 s | shadow comparison; close doublets need anti-overlap guard |
+| precursor–fragment RT half-window | 10 s | reference alignment within 10 s | adopted as primary; close doublets still use the anti-overlap guard |
 | chromatographic correlation | >0.9 | reference >0.9 | directly corroborated |
 | DIA fallback width | 15 m/z | reference 5/4.5 | keep as fallback only; current real bounds come from raw |
 | raw DIA width | 15 m/z | raw scan metadata | authoritative for this file |
@@ -76,7 +76,8 @@ precursor EIC to 3 ppm while retaining 10 ppm fragment EICs reduces two-sided
 spectra further to 43 and changes 17 statuses. This is not evidence for adopting
 3 ppm in MS2; it is evidence that the note's scope must be confirmed.
 
-Increasing only the RT half-window from 8 to 10 seconds raises two-sided spectra
+The historical full-table audit that increased only the RT half-window from 8
+to 10 seconds raised two-sided spectra
 from 53 to 58 and changes 11 statuses: six not-evaluable rows become
 insufficient, two insufficient rows and one conflict become supported, one
 insufficient row becomes conflict, and one becomes not evaluable. The focused
@@ -84,8 +85,9 @@ queue and SVG/PNG gallery are under
 `results/development/ms2/sensitivity_EASMSV1_provenance/rt10_status_change_review_*`. Visual
 inspection shows that several promoted rows have MS1 FWHM values of roughly
 14–34 seconds, so an 8-second half-window can truncate a substantial part of
-their chromatographic profile. The 10-second setting is promising but remains
-a shadow profile until these 11 flips receive manual review.
+their chromatographic profile. Following the instruction to use the paper
+Method as the parameter source, 10 seconds is now the primary default; the
+changed rows still require manual review and must not be treated as truth.
 
 The 10-second run changes the retained spectrum in 71 rows even though only 11
 statuses flip. A complete PNG/SVG queue is available at

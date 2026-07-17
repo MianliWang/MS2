@@ -108,10 +108,12 @@ python -m MSAI.python.cli.ms2 analyze `
   --output MSAI\results\final\ig_easmsv1\tables\ms2_analysis.csv
 ```
 
-The compatibility defaults remain a shared 10 ppm precursor/fragment EIC
-tolerance, 8-second RT half-window, Pearson coelution correlation >0.9, one candidate
-scan, 0.01 Da spectrum-alignment tolerance, cosine >=0.7, at least six matched
-ions, and at least 50% explained intensity on both sides.  These defaults are
+The primary defaults use a shared 10 ppm precursor/fragment EIC tolerance,
+the paper-derived 10-second RT half-window, Pearson coelution correlation >0.9,
+one candidate scan, 0.01 Da spectrum-alignment tolerance, cosine >=0.7, at least
+six matched ions, and at least 50% explained intensity on both sides. Only the
+10-second alignment and >0.9 correlation are specified or directly corroborated
+by the AdductMLib Methods section; the remaining values are compatibility or
 screening guardrails, not validated universal identity thresholds.
 
 For calibrated or shadow runs, precursor and fragment coelution EIC tolerances
@@ -177,7 +179,7 @@ The two layers are deliberately not merged. See
 [`docs/acquisition_parameter_reconciliation.md`](docs/acquisition_parameter_reconciliation.md)
 for the 5/4.5-vs-15 m/z and stepped-15/30/60-vs-35 provenance audit.
 
-See `standards/ms2_diagnostic_standard_v1.json` and
+See `standards/ms2_diagnostic_standard_v2.json` and
 `docs/ms2_diagnostic_standard.md` for the decision sequence and calibration
 boundary. See `docs/ms2_static_visual_review_plan.md` and
 `standards/ms2_manual_review_schema_v1.json` for static image review. MS1 remains separately documented in
