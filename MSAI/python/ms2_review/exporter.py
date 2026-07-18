@@ -32,7 +32,75 @@ from .acquisition import (
 from .classification import review_views, spectrum_availability
 from .model import prepare_mirror_spectrum
 from .png import render_ms2_review_png
+from .render_context import build_review_render_metadata, review_config_hash
 from .svg import render_ms2_review_svg
+
+TARGET_MANIFEST_FIELDS = (
+    "target_uid",
+    "artifact_sha256",
+    "png_sha256",
+    "dataset_id",
+    "run_id",
+    "standard_id",
+    "config_hash",
+    "source_row",
+    "compound_id",
+    "target_mz",
+    "supplied_peak1_rt_min",
+    "supplied_peak2_rt_min",
+    "source_machine_id",
+    "source_machine_label",
+    "source_machine_interpretation",
+    "source_pool_id",
+    "source_pooled_well",
+    "ms1_reference_status",
+    "ms2_diagnostic_status",
+    "ms2_review_priority",
+    "ms2_issue_codes",
+    "ml_same_compound_probability",
+    "ml_diagnostic_status",
+    "ml_model_id",
+    "ml_abstention_reason",
+    "ml_review_flags",
+    "spectrum_availability",
+    "ms2_cosine",
+    "ms2_entropy_similarity",
+    "ms2_matched_peaks",
+    "peak_a_explained_intensity",
+    "peak_b_explained_intensity",
+    "peak_a_fragment_count",
+    "peak_b_fragment_count",
+    "peak_a_candidate_fragment_count",
+    "peak_b_candidate_fragment_count",
+    "peak_a_quality_flags",
+    "peak_b_quality_flags",
+    "dia_window_lower",
+    "dia_window_upper",
+    "dia_window_match_count",
+    "method_profile_id",
+    "acquisition_reconciliation_status",
+    "acquisition_issue_codes",
+    "rt_half_window_sec",
+    "fragment_correlation_mode",
+    "svg_asset_path",
+    "png_asset_path",
+    "views",
+)
+
+REVIEW_LABEL_FIELDS = (
+    "target_uid",
+    "artifact_sha256",
+    "reviewer_id",
+    "review_round",
+    "manual_ms2_identity_label",
+    "confidence",
+    "peak1_spectrum_quality",
+    "peak2_spectrum_quality",
+    "manual_issue_codes",
+    "diagnostic_fragment_notes",
+    "notes",
+    "reviewed_utc",
+)
 
 
 def export_ms2_review(
@@ -45,6 +113,8 @@ def export_ms2_review(
     source_machine_label_column: str | None = "IG",
     image_formats: tuple[str, ...] = ("svg", "png"),
     png_scale: float = 2.0,
+    preserve_input_diagnostics: bool = False,
+    model_artifact_path=None,
 ) -> dict:
     """批量生成可追溯的逐目标MS2人工复核资料。
 
@@ -64,6 +134,7 @@ def export_ms2_review(
     sidecar_path = Path(sidecar_path) if sidecar_path else Path(str(input_path) + ".metadata.json")
     sidecar = _read_json(sidecar_path) if sidecar_path.exists() else {}
     standard = _read_json(Path(standard_path)) if standard_path else {}
+    model_context = _load_model_context(model_artifact_path)
     method_profile = load_method_profile(method_profile_path)
     parameters = dict(sidecar.get("parameters") or {})
     thresholds = ChiralPairThresholds(
@@ -75,7 +146,31 @@ def export_ms2_review(
     fragment_mz_tol = float(parameters.get("fragment_mz_tol", 0.01))
     fragment_mz_tol_unit = str(parameters.get("fragment_mz_tol_unit", "Da"))
     min_relative_intensity = float(parameters.get("min_relative_intensity", 0.01))
-    rows = annotate_rows(read_result_rows(input_path), thresholds)
+    rows = annotate_rows(
+        read_result_rows(input_path),
+        thresholds,
+        preserve_input_diagnostics=preserve_input_diagnostics,
+    )
+    row_model_ids = sorted(
+        {
+            str(row.get("ml_model_id") or "").strip()
+            for row in rows
+            if str(row.get("ml_model_id") or "").strip()
+        }
+    )
+    if len(row_model_ids) > 1:
+        raise ValueError("Review rows may contain predictions from exactly one model ID.")
+    sidecar_model = _sidecar_model_context(sidecar)
+    if not model_context and sidecar_model:
+        model_context = sidecar_model
+    if (
+        model_context
+        and row_model_ids
+        and row_model_ids != [str(model_context.get("model_id") or "")]
+    ):
+        raise ValueError("Review rows do not match the attached shadow model ID.")
+    if not model_context and len(row_model_ids) == 1:
+        model_context = {"model_id": row_model_ids[0]}
     standard_id = str(standard.get("standard_id") or "MSAI-MS2-DIAGNOSTIC-v1")
     dataset_id = folder_component(input_path.stem)
     raw_path = str(((sidecar.get("inputs") or {}).get("raw") or {}).get("path") or "")
@@ -89,7 +184,13 @@ def export_ms2_review(
         dia_windows=dia_windows,
         raw_input_count=1 if raw_path else 0,
     )
-    config_hash = _config_hash(standard_id, parameters, thresholds, method_profile)
+    config_hash = review_config_hash(
+        standard_id=standard_id,
+        parameters=parameters,
+        thresholds=thresholds.__dict__,
+        method_profile=method_profile,
+        model_context=model_context,
+    )
 
     _prepare_output(output_dir)
     asset_root = (
@@ -142,38 +243,23 @@ def export_ms2_review(
             fragment_mz_tol_unit=fragment_mz_tol_unit,
             min_relative_intensity=min_relative_intensity,
         )
-        source_context = (
-            f"{source_machine_id} label: {source_machine_label or '—'} ({interpretation})"
-            if source_machine_id
-            else "no source-machine label"
+        render_metadata = build_review_render_metadata(
+            target_uid=target_uid,
+            config_hash=config_hash,
+            standard_id=standard_id,
+            source_machine_id=source_machine_id,
+            source_machine_label=source_machine_label,
+            source_machine_interpretation=interpretation,
+            source_pool_id=source_pool_id,
+            source_pooled_well=source_pooled_well,
+            parameters=parameters,
+            thresholds=thresholds.__dict__,
+            dia_windows=dia_windows,
+            acquisition_context=acquisition_context,
+            method_profile=method_profile,
+            acquisition_reconciliation=acquisition_reconciliation,
+            model_context=model_context,
         )
-        render_metadata = {
-            "target_uid": target_uid,
-            "config_hash": config_hash,
-            "standard_id": standard_id,
-            "source_context": source_context,
-            "source_pool_id": source_pool_id,
-            "source_pooled_well": source_pooled_well,
-            "fragment_mz_tol": fragment_mz_tol,
-            "fragment_mz_tol_unit": fragment_mz_tol_unit,
-            "min_relative_intensity": min_relative_intensity,
-            "min_cosine": thresholds.min_cosine,
-            "min_matched_peaks": thresholds.min_matched_peaks,
-            "min_explained_intensity": thresholds.min_explained_intensity,
-            "rt_half_window_sec": parameters.get("rt_half_window_sec", 10.0),
-            "min_fragment_correlation": parameters.get("min_fragment_correlation", 0.9),
-            "fragment_correlation_mode": parameters.get("fragment_correlation_mode", "full_window"),
-            "correlation_min_relative_intensity": parameters.get(
-                "correlation_min_relative_intensity", 0.05
-            ),
-            "min_correlation_scans": parameters.get("min_correlation_scans", 5),
-            "max_fragment_apex_offset_scans": parameters.get("max_fragment_apex_offset_scans", 1),
-            "min_consecutive_fragment_scans": parameters.get("min_consecutive_fragment_scans", 3),
-            "dia_windows": dia_windows,
-            "acquisition_context": acquisition_context,
-            "method_profile": method_profile,
-            "acquisition_reconciliation": acquisition_reconciliation,
-        }
         svg = render_ms2_review_svg(row=row, mirror=mirror, metadata=render_metadata)
         canonical: dict[str, Path] = {}
         if "svg" in image_formats:
@@ -239,6 +325,11 @@ def export_ms2_review(
                 "ms2_diagnostic_status": row.get("ms2_diagnostic_status", ""),
                 "ms2_review_priority": row.get("ms2_review_priority", ""),
                 "ms2_issue_codes": row.get("ms2_issue_codes", ""),
+                "ml_same_compound_probability": row.get("ml_same_compound_probability", ""),
+                "ml_diagnostic_status": row.get("ml_diagnostic_status", ""),
+                "ml_model_id": row.get("ml_model_id", ""),
+                "ml_abstention_reason": row.get("ml_abstention_reason", ""),
+                "ml_review_flags": row.get("ml_review_flags", ""),
                 "spectrum_availability": spectrum_availability(row),
                 "ms2_cosine": row.get("ms2_cosine", ""),
                 "ms2_entropy_similarity": row.get("ms2_entropy_similarity", ""),
@@ -273,7 +364,11 @@ def export_ms2_review(
             }
         )
 
-    _write_csv(metadata_root / "target_manifest.csv", manifest)
+    _write_csv(
+        metadata_root / "target_manifest.csv",
+        manifest,
+        fieldnames=TARGET_MANIFEST_FIELDS,
+    )
     _write_csv(metadata_root / "view_index.csv", view_index)
     _write_annotation_template(
         output_dir / "annotations" / "_template" / "review_labels.csv", manifest
@@ -289,6 +384,8 @@ def export_ms2_review(
             "method_profile_id": method_profile.get("profile_id"),
             "acquisition_reconciliation_status": acquisition_reconciliation.get("status"),
             "acquisition_issue_codes": acquisition_reconciliation.get("issue_codes", []),
+            "ml_model_id": model_context.get("model_id") or None,
+            "ml_model_sha256": model_context.get("sha256") or None,
         }
     )
     (metadata_root / "generation_summary.json").write_text(
@@ -323,6 +420,12 @@ def export_ms2_review(
         "image_formats": image_formats,
         "png_scale": png_scale if "png" in image_formats else None,
         "source_machine_label_column": source_machine_label_column,
+        "preserve_input_diagnostics": preserve_input_diagnostics,
+        "model_artifact": {
+            "path": model_context.get("path") or None,
+            "sha256": model_context.get("sha256") or None,
+            "model_id": model_context.get("model_id") or None,
+        },
     }
     (metadata_root / "run_manifest.json").write_text(
         json.dumps(run_manifest, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -359,14 +462,20 @@ def _hardlink(source: Path, destination: Path) -> None:
         ) from error
 
 
-def _write_csv(path: Path, rows: list[dict]) -> None:
-    """以所有记录键的稳定并集写出UTF-8 CSV。"""
+def _write_csv(
+    path: Path,
+    rows: list[dict],
+    *,
+    fieldnames: tuple[str, ...] | None = None,
+) -> None:
+    """按显式schema或首行键顺序写出UTF-8 CSV。"""
 
-    if not rows:
+    resolved_fields = fieldnames or (tuple(rows[0]) if rows else ())
+    if not resolved_fields:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer = csv.DictWriter(handle, fieldnames=resolved_fields)
         writer.writeheader()
         writer.writerows(rows)
 
@@ -393,7 +502,7 @@ def _write_annotation_template(path: Path, manifest: list[dict]) -> None:
         }
         for row in manifest
     ]
-    _write_csv(path, rows)
+    _write_csv(path, rows, fieldnames=REVIEW_LABEL_FIELDS)
 
 
 def _write_galleries(output_dir: Path, views: dict[str, list[dict[str, str]]]) -> None:
@@ -473,6 +582,9 @@ def _summary(manifest, views, input_path, sidecar_path):
         "sidecar": str(sidecar_path.resolve()) if sidecar_path else None,
         "images": len(manifest),
         "status_counts": dict(Counter(row["ms2_diagnostic_status"] for row in manifest)),
+        "ml_status_counts": dict(
+            Counter(row["ml_diagnostic_status"] for row in manifest if row["ml_diagnostic_status"])
+        ),
         "priority_counts": dict(Counter(row["ms2_review_priority"] for row in manifest)),
         "spectrum_availability_counts": dict(
             Counter(row["spectrum_availability"] for row in manifest)
@@ -532,25 +644,41 @@ def _read_json(path: Path) -> dict:
         return json.load(handle)
 
 
-def _config_hash(
-    standard_id: str,
-    parameters: dict,
-    thresholds: ChiralPairThresholds,
-    method_profile: dict | None = None,
-) -> str:
-    """由诊断标准、分析参数、阈值和方法profile生成短配置指纹。"""
+def _load_model_context(model_artifact_path) -> dict:
+    """Load a shadow-model fingerprint without changing analysis parameters."""
 
-    payload = json.dumps(
-        {
-            "standard_id": standard_id,
-            "parameters": parameters,
-            "thresholds": thresholds.__dict__,
-            "method_profile": method_profile or {},
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()[:10]
+    if not model_artifact_path:
+        return {}
+    path = Path(model_artifact_path)
+    from ..ms2_ml.shadow import load_model_artifact
+
+    artifact = load_model_artifact(path)
+    decision = artifact["trainable_decision"]
+    return {
+        "path": str(path.resolve()),
+        "sha256": _sha256_file(path),
+        "model_id": str(decision["model_id"]),
+        "trainable_decision": decision,
+    }
+
+
+def _sidecar_model_context(sidecar: dict) -> dict:
+    """Read model fingerprints from a validated shadow-result sidecar."""
+
+    inference = sidecar.get("shadow_inference")
+    if not isinstance(inference, dict):
+        return {}
+    model = inference.get("model")
+    if not isinstance(model, dict):
+        return {}
+    model_id = str(model.get("model_id") or "").strip()
+    if not model_id:
+        return {}
+    return {
+        "path": str(model.get("path") or ""),
+        "sha256": str(model.get("sha256") or ""),
+        "model_id": model_id,
+    }
 
 
 def _target_uid(dataset, compound, pool, mz, peak1, peak2) -> str:

@@ -424,16 +424,20 @@ The comparison preserves candidate spectra plus baseline statuses/scores, so
 the standard MS2 exporter can make a focused SVG/PNG gallery without replacing
 the main result.
 
-Tune MS2 decision thresholds only on a held-out table containing real positive
-and negative standard labels:
+Train the MS2 shadow decision layer only on independently assigned positive and
+negative truth spanning multiple acquisition batches. The command requires a
+per-batch source-sidecar manifest and one prespecified locked final batch:
 
 ```powershell
-python MSAI\python\calibrate_thresholds.py `
-  --input labeled_standard_results.csv `
-  --label-column truth `
-  --objective balanced_accuracy `
-  --output calibrated_ms2_thresholds.json
+python -m MSAI.python.cli.ms2 train-shadow `
+  --input independent_ms2_truth.csv `
+  --source-sidecar independent_ms2_truth.sources.json `
+  --locked-final-batch BATCH-FINAL `
+  --output MSAI\results\development\ms2\shadow\model.json
 ```
+
+The legacy standalone `calibrate_thresholds.py` CLI is intentionally disabled:
+it cannot enforce nested batch/compound isolation or a locked final evaluation.
 
 Reproduce the automatic peak-picker calibration:
 

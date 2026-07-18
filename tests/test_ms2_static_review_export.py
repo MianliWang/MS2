@@ -12,7 +12,11 @@ from MSAI.python.ms2_review.acquisition import (
     reconcile_acquisition,
 )
 from MSAI.python.ms2_review.classification import review_views, spectrum_availability
-from MSAI.python.ms2_review.exporter import export_ms2_review
+from MSAI.python.ms2_review.exporter import (
+    REVIEW_LABEL_FIELDS,
+    TARGET_MANIFEST_FIELDS,
+    export_ms2_review,
+)
 from MSAI.python.ms2_review.model import prepare_mirror_spectrum
 from MSAI.python.ms2_review.png import render_ms2_review_png
 from MSAI.python.ms2_review.svg import render_ms2_review_svg
@@ -165,6 +169,36 @@ class StaticRenderTests(unittest.TestCase):
 
 
 class StaticExportTests(unittest.TestCase):
+    def test_empty_export_writes_manifest_and_annotation_headers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "empty.csv"
+            with source.open("w", encoding="utf-8", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=list(_supported_row()))
+                writer.writeheader()
+
+            output = root / "review"
+            summary = export_ms2_review(source, output, image_formats=("svg",))
+
+            self.assertEqual(summary["images"], 0)
+            tables = (
+                (
+                    output / "metadata" / "target_manifest.csv",
+                    TARGET_MANIFEST_FIELDS,
+                ),
+                (
+                    output / "annotations" / "_template" / "review_labels.csv",
+                    REVIEW_LABEL_FIELDS,
+                ),
+            )
+            for path, expected_fields in tables:
+                with self.subTest(path=path):
+                    self.assertTrue(path.is_file())
+                    with path.open(encoding="utf-8-sig", newline="") as handle:
+                        reader = csv.DictReader(handle)
+                        self.assertEqual(reader.fieldnames, list(expected_fields))
+                        self.assertEqual(list(reader), [])
+
     def test_export_writes_all_rows_hardlinks_and_preserves_annotations(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

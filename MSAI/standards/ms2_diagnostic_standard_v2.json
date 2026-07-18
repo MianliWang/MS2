@@ -10,6 +10,7 @@
     "rt_half_window_seconds": 10.0,
     "close_peak_window_rule": "half_width=min(10.0, 0.4*rt_separation_seconds)",
     "fragment_coelution_min_pearson": 0.9,
+    "fragment_coelution_operator": ">",
     "spectrum_min_relative_intensity": 0.01,
     "intensity_transform_for_cosine": "square_root",
     "fragment_alignment_tolerance_da": 0.01,

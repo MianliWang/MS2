@@ -70,12 +70,39 @@ Primary package: `ms2_review/`.
   pool, and review priority;
 - `acquisition.py`: displayed raw-observed versus reference-method provenance.
 
+## Optional step 9 - independently trained ML shadow
+
+Primary package: `ms2_ml/`.
+
+- `contracts.py`: exact truth/status vocabularies, frozen-source checks, leakage
+  denylist, and the single-section model-artifact rule;
+- `features.py`: six fixed features recomputed only from the two spectrum cells;
+- `splits.py`: locked-batch and nested leave-one-batch-out splits with
+  `Compound_ID` purging;
+- `thresholds.py` / `logistic.py`: the only two allowed model families;
+- `training.py`: tuning, development comparison, locked evaluation, manifest,
+  deterministic model ID, and model card;
+- `shadow.py`: preserves v2 and appends exactly five `ml_*` fields;
+- `shadow_review.py`: v2/ML disagreement CSV, HTML, and paired PNG/SVG.
+- `review_package.py`: builds a compact, hash-checked manual-review ZIP without
+  duplicated hardlink views or broken gallery references.
+
+This step is inactive for model fitting until independently assigned positive
+and negative truth spans multiple batches.  The present 129-row coverage slice
+is feasibility-only.  Method/extraction settings are inputs to a lock check,
+not training variables.  See
+[`ms2_shadow_classifier_plan.md`](ms2_shadow_classifier_plan.md).
+
 ## Supported commands
 
 ```powershell
 python -m MSAI.python.cli.ms2 analyze --help
 python -m MSAI.python.cli.ms2 report --help
 python -m MSAI.python.cli.ms2 export-review --help
+python -m MSAI.python.cli.ms2 train-shadow --help
+python -m MSAI.python.cli.ms2 apply-shadow --help
+python -m MSAI.python.cli.ms2 shadow-review --help
+python -m MSAI.python.cli.ms2 package-shadow-review --help
 ```
 
 Legacy script names remain available, but the module command above is the

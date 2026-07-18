@@ -1,0 +1,189 @@
+{
+  "contract_id": "MSAI-MS2-ML-SHADOW-v1",
+  "mode": "shadow_only",
+  "authoritative_diagnostic_standard": "MSAI-MS2-DIAGNOSTIC-v2",
+  "claim_boundary": "Probability that two already-extracted spectra support the same-compound hypothesis; no R/S assignment or enrichment claim",
+  "current_data_eligibility": "feasibility_only_no_independent_truth_and_no_independent_batch",
+  "truth_labels": [
+    "positive_same_compound",
+    "negative_different_or_interference",
+    "uncertain",
+    "not_evaluable"
+  ],
+  "fit_eligible_truth_labels": [
+    "positive_same_compound",
+    "negative_different_or_interference"
+  ],
+  "ml_statuses": [
+    "supported_same_compound",
+    "conflicting_spectra",
+    "insufficient_evidence",
+    "not_evaluable"
+  ],
+  "shadow_output_fields": [
+    "ml_same_compound_probability",
+    "ml_diagnostic_status",
+    "ml_model_id",
+    "ml_abstention_reason",
+    "ml_review_flags"
+  ],
+  "frozen_input_generation": {
+    "source_analysis_parameter_schema": {
+      "allowed_keys": [
+        "mz_column",
+        "peak_a_column",
+        "peak_b_column",
+        "rt_unit",
+        "rt_half_window_sec",
+        "mz_tol",
+        "mz_tol_unit",
+        "mz_tol_legacy_scope",
+        "precursor_eic_mz_tol",
+        "precursor_eic_mz_tol_unit",
+        "fragment_eic_mz_tol",
+        "fragment_eic_mz_tol_unit",
+        "dia_iso_win_fallback",
+        "fragment_mz_tol",
+        "fragment_mz_tol_unit",
+        "min_relative_intensity",
+        "min_fragment_intensity",
+        "min_fragment_relative_intensity",
+        "min_fragment_correlation",
+        "fragment_correlation_mode",
+        "correlation_min_relative_intensity",
+        "min_correlation_scans",
+        "max_fragment_apex_offset_scans",
+        "min_consecutive_fragment_scans",
+        "consensus_scans",
+        "min_cosine",
+        "min_matched_peaks",
+        "min_explained_intensity",
+        "min_entropy_similarity"
+      ],
+      "explicit_eic_atomic_group": [
+        "precursor_eic_mz_tol",
+        "precursor_eic_mz_tol_unit",
+        "fragment_eic_mz_tol",
+        "fragment_eic_mz_tol_unit"
+      ],
+      "downstream_decision_guardrail_atomic_group": [
+        "min_cosine",
+        "min_matched_peaks",
+        "min_explained_intensity",
+        "min_entropy_similarity"
+      ],
+      "unknown_keys": "forbidden_fail_closed"
+    },
+    "paper_method_never_trained": {
+      "rt_half_window_sec": 10.0,
+      "fragment_coelution_min_pearson": 0.9,
+      "fragment_coelution_operator": ">",
+      "acquisition_and_dia_conditions": "provenance_only"
+    },
+    "extraction_never_trained_in_this_model_family": {
+      "precursor_eic_tolerance": 10.0,
+      "precursor_eic_tolerance_unit": "ppm",
+      "fragment_eic_tolerance": 10.0,
+      "fragment_eic_tolerance_unit": "ppm",
+      "fragment_alignment_tolerance": 0.01,
+      "fragment_alignment_tolerance_unit": "Da",
+      "spectrum_min_relative_intensity": 0.01,
+      "min_fragment_intensity": 2000.0,
+      "min_fragment_relative_intensity": 0.0,
+      "fragment_correlation_mode": "full_window",
+      "correlation_min_relative_intensity": 0.05,
+      "min_correlation_scans": 5,
+      "max_fragment_apex_offset_scans": 1,
+      "min_consecutive_fragment_scans": 3,
+      "fragment_matching": "exclusive_one_to_one",
+      "close_peak_window_rule": "half_width=min(10.0, 0.4*rt_separation_seconds)",
+      "consensus_scan_count": 1,
+      "dia_isolation_fallback_mz": 15.0
+    }
+  },
+  "features_in_order": [
+    "cosine",
+    "entropy_similarity",
+    "log1p_matched_peaks",
+    "min_explained_intensity",
+    "explained_intensity_asymmetry",
+    "fragment_count_balance"
+  ],
+  "forbidden_feature_sources": [
+    "ms2_diagnostic_status",
+    "enantiomer_pair_status",
+    "ms2_issue_codes",
+    "IG",
+    "supported_same_compound",
+    "conflicting_spectra",
+    "candidate_enantiomer_pair",
+    "ms2_not_similar",
+    "insufficient_ms2_evidence",
+    "compound_identity_status",
+    "truth_label",
+    "positive_same_compound",
+    "negative_different_or_interference",
+    "uncertain",
+    "not_evaluable",
+    "ml_same_compound_probability",
+    "ml_diagnostic_status",
+    "ml_model_id",
+    "ml_abstention_reason",
+    "ml_review_flags"
+  ],
+  "split_contract": {
+    "development": "nested leave-one-batch-out with Compound_ID purge",
+    "final": "one prespecified locked independent batch with Compound_ID purge",
+    "row_random_split": "forbidden",
+    "batch_source_proof": "exact batch_sources manifest; validate every eligible batch sidecar and record only path/SHA256"
+  },
+  "allowed_model_families": [
+    "threshold_grid",
+    "StandardScaler_plus_L2_LogisticRegression"
+  ],
+  "selection_objective": "maximize recall subject to held-out specificity >= 0.95; threshold wins ties and unreliable cross-batch logistic improvements",
+  "project_engineering_defaults_not_from_paper": {
+    "threshold_grid": {
+      "cosine": "0.50..0.95 step 0.025",
+      "matched_fragments": [2, 3, 4, 5, 6, 8, 10],
+      "minimum_explained_intensity": "0.3..0.8 step 0.1",
+      "entropy_similarity": [null, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9]
+    },
+    "minimum_specificity": 0.95,
+    "logistic_C_grid": [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 100.0],
+    "logistic_class_weight_grid": [null, "balanced"],
+    "optimizer": {
+      "algorithm": "deterministic_newton_irls",
+      "max_iterations": 200,
+      "tolerance": 1e-9,
+      "maximum_step_halving_attempts": 40,
+      "sufficient_decrease_constant": 0.0001,
+      "deployment_requires_converged": true,
+      "failed_tuning_candidates_recorded": true
+    },
+    "calibration_bins": 10,
+    "group_bootstrap_iterations": 1000,
+    "bootstrap_confidence_level": 0.95,
+    "bootstrap_reporting": [
+      "all_row_support_calls",
+      "all_row_probability_quality",
+      "selective_non_abstained_performance",
+      "status_rates",
+      "overall_and_class_specific_coverage"
+    ],
+    "base_seed": 20260129,
+    "threshold_bucket_laplace_smoothing": "(positive_count + 1) / (total_count + 2)",
+    "near_probability_boundary_review_flag": 0.05
+  },
+  "training_artifact_contract": {
+    "allowed_top_level_keys": [
+      "trainable_decision"
+    ],
+    "forbidden_top_level_or_sibling_sections": [
+      "method",
+      "extraction",
+      "acquisition",
+      "dia"
+    ]
+  }
+}

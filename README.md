@@ -167,6 +167,90 @@ py -3.12 -m MSAI.python.cli.ms2 export-review `
 
 旧入口`get_chiral_frag.py`、`ms2_review_report.py`和`export_ms2_spectrum_review.py`仍然可用，但新代码统一使用`python -m MSAI.python.cli.ms2`。
 
+### 4. ML shadow（需要独立truth后才能训练）
+
+训练数据必须包含精确truth label、`Compound_ID`和独立`batch_id`，并预先
+指定一个完全锁定的最终批次：
+
+```powershell
+python -m MSAI.python.cli.ms2 train-shadow `
+  --input independent_ms2_truth.csv `
+  --source-sidecar independent_ms2_truth.sources.json `
+  --locked-final-batch BATCH-FINAL `
+  --output MSAI\results\development\ms2\shadow\model.json
+```
+
+`--source-sidecar`在多batch训练时是逐batch来源manifest，而不是任选一个
+run的metadata。每个eligible `batch_id`必须映射到生成该批谱图的sidecar；
+相对路径以manifest所在目录为基准，可选SHA-256用于锁定文件内容：
+
+```json
+{
+  "batch_sources": {
+    "BATCH-A": {"path": "BATCH-A.csv.metadata.json", "sha256": "<64 hex>"},
+    "BATCH-B": {"path": "BATCH-B.csv.metadata.json", "sha256": "<64 hex>"},
+    "BATCH-C": {"path": "BATCH-C.csv.metadata.json", "sha256": "<64 hex>"},
+    "BATCH-FINAL": {"path": "BATCH-FINAL.csv.metadata.json", "sha256": "<64 hex>"}
+  }
+}
+```
+
+训练会逐batch验证相同的冻结提取合同，并在artifact中只记录路径和hash，
+不会复制或改写Method/提取参数。缺失、额外、hash不符或参数不一致的batch
+都会fail closed。
+
+训练产物不会替换v2。推理只在原CSV后追加五个`ml_*`字段，再单独导出
+所有v2/ML分歧：
+
+```powershell
+python -m MSAI.python.cli.ms2 apply-shadow `
+  --input MSAI\results\final\ig_easmsv1\tables\ms2_analysis.csv `
+  --model MSAI\results\development\ms2\shadow\model.json `
+  --output MSAI\results\development\ms2\shadow\ms2_shadow.csv
+
+python -m MSAI.python.cli.ms2 shadow-review `
+  --input MSAI\results\development\ms2\shadow\ms2_shadow.csv `
+  --model MSAI\results\development\ms2\shadow\model.json `
+  --output-dir MSAI\results\development\ms2\shadow\review
+
+python -m MSAI.python.cli.ms2 package-shadow-review `
+  --input MSAI\results\development\ms2\shadow\ms2_shadow.csv `
+  --review-dir MSAI\results\development\ms2\shadow\review `
+  --model MSAI\results\development\ms2\shadow\model.json `
+  --output share\MS2_shadow_manual_review.zip
+```
+
+当前129行coverage slice没有独立truth，三步都必须省略`--model`：
+
+```powershell
+python -m MSAI.python.cli.ms2 apply-shadow `
+  --input MSAI\results\final\ig_easmsv1\tables\ms2_analysis.csv `
+  --output MSAI\results\development\ms2\shadow\ms2_shadow_untrained.csv
+
+python -m MSAI.python.cli.ms2 shadow-review `
+  --input MSAI\results\development\ms2\shadow\ms2_shadow_untrained.csv `
+  --output-dir MSAI\results\development\ms2\shadow\review_untrained
+
+python -m MSAI.python.cli.ms2 package-shadow-review `
+  --input MSAI\results\development\ms2\shadow\ms2_shadow_untrained.csv `
+  --review-dir MSAI\results\development\ms2\shadow\review_untrained `
+  --output share\MS2_RT10_UNTRAINED_manual_review.zip
+```
+
+`package-shadow-review`只收入最终CSV及其metadata、人工复核队列/标注表、
+`START_HERE.html`和其中引用的canonical PNG/SVG。命令会验证result/review
+hash、行数、model ID、sidecar派生的渲染上下文、PNG像素、SVG内容、图片
+manifest、HTML本地链接和ZIP CRC；不会收入重复的`views/`、galleries、代码或
+中间训练文件。默认输出到`share/`，已有文件需
+显式加`--force`才会替换。没有独立truth时，包内README会明确标为
+`UNTRAINED feasibility`，不会把当前经验阈值称为best/tuned参数。对已训练
+结果必须同时提供`--model`；命令验证artifact的ID、SHA和实际选定参数，但
+不会把模型文件收入人工审核包。
+
+当前129行coverage slice没有独立truth且只有一个raw/batch，只允许运行上述
+无模型的feasibility链路；不得据此拟合或声称验证性能。
+完整边界与计划见[MS2 shadow classifier plan](MSAI/docs/ms2_shadow_classifier_plan.md)。
+
 ## 如何理解MS2状态
 
 | `ms2_diagnostic_status` | 含义 |
@@ -224,7 +308,7 @@ MSAI/results/
 ```text
 MSAI/
 ├── python/
-│   ├── cli/ms2.py      # analyze / report / export-review统一入口
+│   ├── cli/ms2.py      # 分析、复核及ML shadow统一入口
 │   ├── ms2/            # 第4–7步核心代码
 │   │   ├── raw_io.py
 │   │   ├── raw_metadata.py
@@ -235,6 +319,7 @@ MSAI/
 │   │   ├── diagnostics.py
 │   │   └── pipeline.py
 │   ├── ms2_review/     # 第8步报告和图像
+│   ├── ms2_ml/         # 独立truth训练、abstention及shadow输出
 │   └── ms1_review/     # 可选MS1参考流程
 ├── config/             # 方法参数与shadow profiles
 └── standards/          # 版本化诊断及人工审核规则
@@ -278,8 +363,16 @@ MSAI/
 | 最少匹配碎片 | `min_matched_peaks` | `6` | 同样借用GNPS常见默认值；AdductMLib论文未给出 | 防止少量匹配产生虚高cosine，但可能排除稀疏真阳性；需按化合物类别校准 |
 | 双侧解释强度 | `min_explained_intensity` | 每侧`50%` | 项目保守guardrail，论文和GNPS默认规则均未给出 | 项目经验性超参数；用于避免匹配只覆盖低强度碎片，需用独立真值集调整 |
 | entropy阈值 | `min_entropy_similarity` | `None`（关闭） | 项目保守选择，论文未给出 | 当前只报告entropy，不参与pass/fail；校准完成前保持关闭 |
+| ML threshold搜索空间 | cosine `0.50–0.95`（步长`0.025`）；匹配碎片`2/3/4/5/6/8/10`；解释强度`0.3–0.8`（步长`0.1`）；entropy关闭或`0.5/0.6/0.7/0.75/0.8/0.85/0.9` | 共`6,384`组 | 项目预先设定的经验搜索空间，论文未给出 | 只允许在独立truth的nested grouped CV中选择；不是论文Method，也不能用当前129行结果反推 |
+| ML错误率约束 | `specificity_target`；低概率conflict端的positive safety | 最低`0.95` | 项目预先设定的保守错误率目标，论文未给出 | 训练接口不得调低到`0.95`以下；主目标是在held-out specificity满足约束时最大化recall |
+| Logistic候选 | population `StandardScaler` + L2 Logistic；`C=1e-4…1e2`按10倍递增；`class_weight=None/balanced` | `7 × 2`组 | 标准可解释baseline与项目预设工程网格，论文未给出 | 不允许L1、树、interaction或NN；threshold在平局及跨batch改善不稳定时优先 |
+| Logistic数值求解 | deterministic Newton/IRLS；`max_iter=200`；`tolerance=1e-9`；最多40次step-halving；充分下降常数`1e-4` | 固定 | 数值工程默认值，论文未给出，也不是科学Method参数 | 不进入超参数搜索；14组逐一记录尝试、收敛和失败情况，outer/final refit未收敛则终止，deployment只接受`converged=true`且1–200次迭代的artifact |
+| 概率与不确定性报告 | Laplace bucket平滑`(+1)/(+2)`；10个等宽calibration bins；按`Compound_ID` group bootstrap `1,000`次、95% CI；base seed `20260129` | 固定工程默认 | 项目为稳定概率报告与可重复性预设，论文未给出 | CI分别覆盖all-row call、全概率质量、non-abstained selective performance、status与coverage；artifact记录实际seed、派生seed和成功bootstrap次数，样本不足时不得宣称验证性能 |
+| ML复核提示 | `NEAR_ML_DECISION_BOUNDARY`距离任一概率边界不超过`0.05` | `0.05` | 项目人工复核heuristic，论文未给出 | 只增加review flag，不改变模型概率或四类ML status；后续可随审核资源单独调整 |
 
 因此，当前自动分类只能称为**包含论文约束的项目筛选流程**，不能整体称为“论文已经验证的诊断标准”。论文有明确出处的参数应按原文实现；论文未定义的参数必须在结果metadata中记录实际值，并明确标注为兼容值、经验性超参数或实验性shadow值。后续调整应使用authentic same-compound阳性、近等质量/共洗脱干扰阴性，按compound和batch分组建立独立验证集，再预先指定错误率目标进行校准；不能根据当前输出反向挑选看起来更好的阈值。
+
+ML model-family的source contract采用closed-world校验：metadata的analysis parameters只能包含25个已冻结输入生成键，以及成组出现的4个下游decision guardrail（`min_cosine`、`min_matched_peaks`、`min_explained_intensity`、`min_entropy_similarity`）。未知新键、只出现部分guardrail、或`parameters`与`provenance_layers.analysis_parameters`不一致都会失败；新增提取参数必须先显式更新并版本化contract。
 
 这些参数不能通过降低阈值来弥补：
 
@@ -307,7 +400,8 @@ uvx --with pillow pyright@1.1.408
 
 `uvx`会把开发工具放在隔离缓存中，不会污染项目运行环境。Ruff配置位于仓库根目录
 `pyproject.toml`，Pyright配置位于`pyrightconfig.json`；两者都检查核心代码和测试。
-核心mzXML/mzML读取不强制依赖`pyopenms`，PNG导出需要Pillow。
+核心mzXML/mzML读取不强制依赖`pyopenms`；`shadow-review`的PNG导出及
+`package-shadow-review`的PNG逐像素完整性复核需要Pillow。
 
 ## 主要文档
 

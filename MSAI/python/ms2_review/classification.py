@@ -96,7 +96,37 @@ def review_views(
         views.append(f"shadow_comparison/review_tier/{folder_component(comparison_tier)}")
     if comparison_level:
         views.append(f"shadow_comparison/change_level/{folder_component(comparison_level)}")
+    ml_status = str(row.get("ml_diagnostic_status") or "").strip()
+    if ml_status:
+        model_id = str(row.get("ml_model_id") or "UNTRAINED").strip()
+        v2_status = _normalise_v2_status(row.get("ms2_diagnostic_status"))
+        views.extend(
+            (
+                f"ml_diagnostic_status/{folder_component(ml_status)}",
+                f"ml_model/{folder_component(model_id)}",
+                "shadow_comparison/transition/"
+                f"{folder_component(v2_status)}_to_{folder_component(ml_status)}",
+            )
+        )
+        if v2_status != ml_status:
+            views.append("review_queues/v2_ml_disagreement")
+        if ml_status == "insufficient_evidence":
+            views.append("review_queues/ml_abstention")
+        if ml_status == "not_evaluable":
+            views.append("review_queues/ml_not_evaluable")
+        abstention = str(row.get("ml_abstention_reason") or "").strip()
+        if abstention:
+            views.append(f"ml_abstention_reason/{folder_component(abstention)}")
+        flags = [flag for flag in str(row.get("ml_review_flags") or "").split(";") if flag]
+        views.extend(f"ml_review_flags/{folder_component(flag)}" for flag in flags)
     return list(dict.fromkeys(views))
+
+
+def _normalise_v2_status(value) -> str:
+    """Map the v2 no-attempt state onto the four-state ML comparison vocabulary."""
+
+    status = str(value or "unknown").strip()
+    return "not_evaluable" if status == "not_attempted" else status
 
 
 def _extreme_fragment_attrition(row: dict) -> bool:

@@ -15,6 +15,7 @@ from .svg import (
     _correlation_label,
     _fmt,
     _method_profile_label,
+    _ml_label,
     _number,
 )
 
@@ -70,29 +71,30 @@ def render_ms2_review_png(
         15,
         bold=True,
     )
-    put(42, 146, "issues: " + _clip(issues + _comparison_label(row), 155), 10, "#8a4b08", mono=True)
+    put(42, 143, _clip(_ml_label(row), 185), 9, "#6941c6", mono=True, bold=True)
+    put(42, 162, "issues: " + _clip(issues + _comparison_label(row), 175), 9, "#8a4b08", mono=True)
     put(
         42,
-        170,
+        181,
         _clip(
             f"analysis: standard {metadata.get('standard_id', '')} · filter ≥{_fmt(float(metadata.get('min_relative_intensity', 0)) * 100, 1)}% base peak · match ±{_fmt(metadata.get('fragment_mz_tol'), 3)} {metadata.get('fragment_mz_tol_unit', '')} · {_correlation_label(metadata)}",
             185,
         ),
-        8,
+        7,
         "#667085",
         mono=True,
     )
     put(
         42,
-        190,
+        199,
         _clip(_acquisition_label(metadata.get("acquisition_context") or {}), 185),
-        8,
+        7,
         "#4f5c70",
         mono=True,
     )
     put(
         42,
-        208,
+        216,
         _clip(
             _method_profile_label(
                 metadata.get("method_profile") or {},
@@ -100,7 +102,7 @@ def render_ms2_review_png(
             ),
             185,
         ),
-        8,
+        7,
         "#8a4b08",
         mono=True,
     )

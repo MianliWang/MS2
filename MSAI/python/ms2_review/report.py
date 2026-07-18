@@ -83,7 +83,10 @@ def read_result_rows(path: Path) -> list[dict[str, str]]:
 
 
 def annotate_rows(
-    rows: list[dict[str, str]], thresholds: ChiralPairThresholds | None = None
+    rows: list[dict[str, str]],
+    thresholds: ChiralPairThresholds | None = None,
+    *,
+    preserve_input_diagnostics: bool = False,
 ) -> list[dict]:
     """用当前阈值重建诊断字段并加入人工标注空列。
 
@@ -97,6 +100,18 @@ def annotate_rows(
         # CSV列是字符串，但本地审核行会额外加入整数行号，因此这里是有意的
         # 异构表格边界；其余核心计算函数仍保持具体数值类型。
         row: dict[str, Any] = dict(source)
+        if preserve_input_diagnostics:
+            # Shadow-mode exports are evidence renderings, not a second diagnostic
+            # pass.  Keep every supplied v2 field byte-for-byte and add only local
+            # review bookkeeping fields when they are absent.
+            row["review_row"] = index
+            row.setdefault("manual_ms2_label", "")
+            row.setdefault("manual_issue_codes", "")
+            row.setdefault("manual_notes", "")
+            row.setdefault("manual_reviewer", "")
+            row.setdefault("manual_review_date", "")
+            annotated.append(row)
+            continue
         similarity = _similarity_from_row(row)
         ms1 = classify_ms1_reference(row.get("Peak1"), row.get("Peak2"))
         diagnostic = classify_ms2_diagnostic(
@@ -120,6 +135,9 @@ def annotate_rows(
         row["manual_reviewer"] = ""
         row["manual_review_date"] = ""
         annotated.append(row)
+    if preserve_input_diagnostics:
+        return annotated
+
     shared_groups: dict[tuple[str, str, str], list[dict]] = {}
     for row in annotated:
         if row.get("peak_a_MS2", "").strip() and row.get("peak_b_MS2", "").strip():

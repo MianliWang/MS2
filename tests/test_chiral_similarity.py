@@ -110,14 +110,12 @@ class MzXmlFallbackTests(unittest.TestCase):
 
 class PairWorkflowTests(unittest.TestCase):
     def test_primary_rt_half_window_matches_reference_method(self):
-        default = inspect.signature(analyze_chiral_peak_pairs).parameters[
-            "rt_half_window_sec"
-        ].default
+        default = (
+            inspect.signature(analyze_chiral_peak_pairs).parameters["rt_half_window_sec"].default
+        )
         self.assertEqual(default, 10.0)
         standard = json.loads(
-            Path("MSAI/standards/ms2_diagnostic_standard_v2.json").read_text(
-                encoding="utf-8"
-            )
+            Path("MSAI/standards/ms2_diagnostic_standard_v2.json").read_text(encoding="utf-8")
         )
         self.assertEqual(standard["preprocessing"]["rt_half_window_seconds"], 10.0)
 
@@ -257,14 +255,21 @@ class CalibrationTests(unittest.TestCase):
     def test_calibration_finds_a_perfect_separating_rule(self):
         rows = []
         for label, cosine, entropy, matched, explained in (
-            ("positive", 0.95, 0.95, 10, 0.9),
-            ("positive", 0.90, 0.90, 8, 0.8),
-            ("negative", 0.40, 0.35, 2, 0.2),
-            ("negative", 0.55, 0.50, 3, 0.3),
+            ("positive_same_compound", 0.95, 0.95, 10, 0.9),
+            ("positive_same_compound", 0.90, 0.90, 8, 0.8),
+            ("negative_different_or_interference", 0.40, 0.35, 2, 0.2),
+            ("negative_different_or_interference", 0.55, 0.50, 3, 0.3),
         ):
+            positive = label == "positive_same_compound"
             rows.append(
                 {
                     "truth": label,
+                    "peak_a_MS2": "100,1000;120,900;140,800;160,700;180,600;200,500",
+                    "peak_b_MS2": (
+                        "100.002,950;120.002,850;140.002,750;160.002,650;180.002,550;200.002,450"
+                        if positive
+                        else "101,1000;121,900;141,800;161,700;181,600;201,500"
+                    ),
                     "ms2_cosine": str(cosine),
                     "ms2_entropy_similarity": str(entropy),
                     "ms2_matched_peaks": str(matched),
@@ -275,6 +280,7 @@ class CalibrationTests(unittest.TestCase):
         result = calibrate_thresholds(rows, "truth")
         self.assertEqual(result.balanced_accuracy, 1.0)
         self.assertEqual(result.precision, 1.0)
+        self.assertEqual(result.candidates_evaluated, 6384)
 
 
 class EasmsStatisticsTests(unittest.TestCase):

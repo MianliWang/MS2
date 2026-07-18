@@ -31,10 +31,11 @@ def render_ms2_review_svg(*, row: dict, mirror: MirrorSpectrumData, metadata: di
         f'<text x="42" y="75" class="mono" font-size="14" fill="#4f5c70">precursor m/z {_fmt(mz, 6)} · supplied RT {_fmt(peak1, 3)} / {_fmt(peak2, 3)} min · separation {_fmt(row.get("rt_separation_sec"), 1)} s</text>',
         f'<text x="42" y="102" font-size="12" fill="#4f5c70">source: {html.escape(str(metadata.get("source_context", "")))} · pool {html.escape(str(metadata.get("source_pool_id") or "—"))} · well {html.escape(str(metadata.get("source_pooled_well") or "—"))}</text>',
         f'<text x="42" y="132" font-size="15" font-weight="650" fill="#172033">MS2 status: {html.escape(status)} · {html.escape(priority)} · availability: {html.escape(mirror.availability)}</text>',
-        f'<text x="42" y="158" class="mono" font-size="11" fill="#8a4b08">issues: {html.escape(issues)}{html.escape(comparison)}</text>',
-        f'<text x="42" y="181" class="mono" font-size="9.5" fill="#667085">analysis: standard {html.escape(str(metadata.get("standard_id", "")))} · filter ≥{_fmt(float(metadata.get("min_relative_intensity", 0)) * 100, 1)}% base peak · match ±{_fmt(metadata.get("fragment_mz_tol"), 3)} {html.escape(str(metadata.get("fragment_mz_tol_unit", "")))} · {html.escape(_correlation_label(metadata))}</text>',
-        f'<text x="42" y="201" class="mono" font-size="9.5" fill="#4f5c70">{html.escape(_acquisition_label(metadata.get("acquisition_context") or {}))}</text>',
-        f'<text x="42" y="219" class="mono" font-size="9.5" fill="#8a4b08">{html.escape(_method_profile_label(metadata.get("method_profile") or {}, metadata.get("acquisition_reconciliation") or {}))}</text>',
+        f'<text x="42" y="155" class="mono" font-size="11" font-weight="650" fill="#6941c6">{html.escape(_ml_label(row))}</text>',
+        f'<text x="42" y="176" class="mono" font-size="10" fill="#8a4b08">issues: {html.escape(issues)}{html.escape(comparison)}</text>',
+        f'<text x="42" y="194" class="mono" font-size="9" fill="#667085">analysis: standard {html.escape(str(metadata.get("standard_id", "")))} · filter ≥{_fmt(float(metadata.get("min_relative_intensity", 0)) * 100, 1)}% base peak · match ±{_fmt(metadata.get("fragment_mz_tol"), 3)} {html.escape(str(metadata.get("fragment_mz_tol_unit", "")))} · {html.escape(_correlation_label(metadata))}</text>',
+        f'<text x="42" y="211" class="mono" font-size="9" fill="#4f5c70">{html.escape(_acquisition_label(metadata.get("acquisition_context") or {}))}</text>',
+        f'<text x="42" y="228" class="mono" font-size="9" fill="#8a4b08">{html.escape(_method_profile_label(metadata.get("method_profile") or {}, metadata.get("acquisition_reconciliation") or {}))}</text>',
         _meter_svg(
             55, 242, 210, "cosine", row.get("ms2_cosine"), threshold=metadata.get("min_cosine")
         ),
@@ -324,3 +325,22 @@ def _comparison_label(row: dict) -> str:
     tier = str(row.get("comparison_review_tier") or "")
     tier_label = f"; tier={tier}" if tier else ""
     return f" · shadow: {baseline or '—'} → {candidate or '—'}; spectra={changed}{tier_label}"
+
+
+def _ml_label(row: dict) -> str:
+    """Format the five append-only shadow fields as a visible evidence strip."""
+
+    status = str(row.get("ml_diagnostic_status") or "").strip()
+    if not status:
+        return ""
+    probability = _number(row.get("ml_same_compound_probability"))
+    probability_label = "—" if probability is None else f"{probability:.4f}"
+    model_id = str(row.get("ml_model_id") or "UNTRAINED").strip()
+    reason = str(row.get("ml_abstention_reason") or "—").strip()
+    flags = str(row.get("ml_review_flags") or "—").strip()
+    v2 = str(row.get("ms2_diagnostic_status") or "—").strip()
+    label = (
+        f"shadow ML: {v2} → {status} · p(same)={probability_label} · "
+        f"model={model_id} · abstention={reason} · flags={flags}"
+    )
+    return label if len(label) <= 185 else label[:182] + "..."
